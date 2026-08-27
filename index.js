@@ -102,7 +102,19 @@ async function run() {
         const existingUser = await usersCollection.findOne(query);
 
         if (existingUser) {
-          return res.send({ message: "user already exist", insertedId: null });
+          return res.send({
+            message: "user already exist",
+            data: { insertedId: null },
+          });
+        }
+
+        const adminEmails = (process.env.ADMIN_EMAILS || "")
+          .split(",")
+          .map((email) => email.trim().toLowerCase())
+          .filter(Boolean);
+
+        if (adminEmails.includes((user.email || "").toLowerCase())) {
+          user.role = "admin";
         }
 
         const result = await usersCollection.insertOne(user);
@@ -117,7 +129,7 @@ async function run() {
     app.get("/users", verifyToken, async (req, res) => {
       try {
         const result = await usersCollection.find().toArray();
-        res.status(201).json({
+        res.status(200).json({
           message: "User get successfully",
           data: result,
         });
@@ -187,7 +199,7 @@ async function run() {
       try {
         const result = await usersCollection.findOne(query);
 
-        res.status(201).json({
+        res.status(200).json({
           message: "allScholarship fetcing successfull",
           data: result,
         });
@@ -304,7 +316,7 @@ async function run() {
     app.get("/allScholership", async (req, res) => {
       try {
         const result = await scholershipCollection.find().toArray();
-        res.status(201).json({
+        res.status(200).json({
           message: "allScholarship fetcing successfull",
           data: result,
         });
@@ -318,22 +330,8 @@ async function run() {
       const query = { _id: new ObjectId(id) };
       try {
         const result = await scholershipCollection.findOne(query);
-        res.status(201).json({
+        res.status(200).json({
           message: "allScholarship fetcing successfull",
-          data: result,
-        });
-      } catch (error) {
-        res.status(500).json({ error: error.message });
-      }
-    });
-
-    app.get("/allScholership", async (req, res) => {
-      const email = req.query.email;
-      const query = { email: email };
-      try {
-        const result = await scholershipCollection.find(query).toArray();
-        res.status(201).json({
-          message: "My Scholarship fetcing successfull",
           data: result,
         });
       } catch (error) {
@@ -425,7 +423,7 @@ async function run() {
           return { ...reviewItem, scholership_details: reviewDetail || null };
         });
 
-        res.status(201).json({
+        res.status(200).json({
           message: "All review get successfully",
           data: combineResult,
         });
@@ -463,7 +461,7 @@ async function run() {
           return { ...reviewItem, scholership_details: reviewDetail || null };
         });
 
-        res.status(201).json({
+        res.status(200).json({
           message: "All review get successfully",
           data: combineResult,
         });
@@ -510,7 +508,7 @@ async function run() {
       try {
         const result = await applyCollection.find(query).toArray();
 
-        res.status(201).json({
+        res.status(200).json({
           message: "apply data added successfully",
           data: result,
         });
@@ -524,7 +522,7 @@ async function run() {
       try {
         const result = await applyCollection.find().toArray();
 
-        res.status(201).json({
+        res.status(200).json({
           message: "apply data added successfully",
           data: result,
         });
@@ -539,7 +537,7 @@ async function run() {
       try {
         const result = await applyCollection.findOne(query);
 
-        res.status(201).json({
+        res.status(200).json({
           message: "apply data added successfully",
           data: result,
         });
