@@ -601,7 +601,7 @@ run().catch(console.dir);
 // mongodb end
 
 app.get("/", (req, res) => {
-  res.send("historical_artifacts_tracker");
+  res.send("School Hive server is running");
 });
 
 app.listen(port, () => {
