@@ -61,13 +61,42 @@ async function run() {
     const usersCollection = database.collection("users");
     const applyCollection = database.collection("apply");
 
+    const loadAuthUser = async (req, res, next) => {
+      try {
+        req.authUser = await usersCollection.findOne({
+          email: req.decoded.email,
+        });
+        next();
+      } catch (error) {
+        res.status(500).send({ error: error.message });
+      }
+    };
+
     const verifyAdmin = async (req, res, next) => {
-      const email = req.decoded.email;
-      const query = { email: email };
-      const user = await usersCollection.findOne(query);
-      const isAdmin = user?.role === "admin";
+      const role = req.authUser?.role;
+      const isAdmin = role === "admin" || role === "superadmin";
       if (!isAdmin) {
         return res.status(403).send({ message: "forbidden access" });
+      }
+      next();
+    };
+
+    const verifySuperAdmin = async (req, res, next) => {
+      if (req.authUser?.role !== "superadmin") {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+      next();
+    };
+
+    const verifyOwnerModifiable = async (req, res, next) => {
+      const target = await usersCollection.findOne({
+        _id: new ObjectId(req.params.id),
+      });
+
+      if (target?.role === "superadmin") {
+        return res
+          .status(403)
+          .send({ message: "the owner role cannot be modified" });
       }
       next();
     };
@@ -119,7 +148,7 @@ async function run() {
           .filter(Boolean);
 
         if (adminEmails.includes((user.email || "").toLowerCase())) {
-          user.role = "admin";
+          user.role = "superadmin";
         }
 
         const result = await usersCollection.insertOne(user);
@@ -156,9 +185,27 @@ async function run() {
       const user = await usersCollection.findOne(query);
       let isAdmin = false;
       if (user) {
-        isAdmin = user?.role === "admin";
+        isAdmin = user?.role === "admin" || user?.role === "superadmin";
       }
       res.send({ isAdmin });
+    });
+
+    // super admin (owner) permission
+
+    app.get("/users/superAdmin/:email", verifyToken, async (req, res) => {
+      const email = req.params.email;
+
+      if (email !== req.decoded.email) {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+
+      const query = { email: email };
+      const user = await usersCollection.findOne(query);
+      let isSuperAdmin = false;
+      if (user) {
+        isSuperAdmin = user?.role === "superadmin";
+      }
+      res.send({ isSuperAdmin });
     });
 
     // modaretor permission
@@ -216,7 +263,9 @@ async function run() {
     app.patch(
       "/users/admin/:id",
       verifyToken,
+      loadAuthUser,
       verifyAdmin,
+      verifyOwnerModifiable,
       async (req, res) => {
         const id = req.params.id;
         const filter = { _id: new ObjectId(id) };
@@ -243,7 +292,9 @@ async function run() {
     app.patch(
       "/users/modaretor/:id",
       verifyToken,
+      loadAuthUser,
       verifyAdmin,
+      verifyOwnerModifiable,
       async (req, res) => {
         const id = req.params.id;
         const filter = { _id: new ObjectId(id) };
@@ -267,34 +318,47 @@ async function run() {
       }
     );
 
-    app.patch("/users/user/:id", verifyToken, verifyAdmin, async (req, res) => {
-      const id = req.params.id;
-      const filter = { _id: new ObjectId(id) };
+    app.patch(
+      "/users/user/:id",
+      verifyToken,
+      loadAuthUser,
+      verifyAdmin,
+      verifyOwnerModifiable,
+      async (req, res) => {
+        const id = req.params.id;
+        const filter = { _id: new ObjectId(id) };
 
-      try {
-        const updatedDoc = {
-          $set: {
-            role: "user",
-          },
-        };
+        try {
+          const updatedDoc = {
+            $set: {
+              role: "user",
+            },
+          };
 
-        const result = await usersCollection.updateOne(filter, updatedDoc);
+          const result = await usersCollection.updateOne(filter, updatedDoc);
 
-        res.status(201).json({
-          message: "Admin added successfully",
-          data: result,
-        });
-      } catch (error) {
-        res.status(500).json({ error: error.message });
+          res.status(201).json({
+            message: "Admin added successfully",
+            data: result,
+          });
+        } catch (error) {
+          res.status(500).json({ error: error.message });
+        }
       }
-    });
+    );
 
-    app.delete("/users/:id", async (req, res) => {
-      const id = req.params.id;
-      const query = { _id: new ObjectId(id) };
-      try {
-        const result = await usersCollection.deleteOne(query);
-        res.status(201).json({
+    app.delete(
+      "/users/:id",
+      verifyToken,
+      loadAuthUser,
+      verifyAdmin,
+      verifyOwnerModifiable,
+      async (req, res) => {
+        const id = req.params.id;
+        const query = { _id: new ObjectId(id) };
+        try {
+          const result = await usersCollection.deleteOne(query);
+          res.status(201).json({
           message: "user deleted successfully",
           data: result,
         });
