@@ -466,7 +466,6 @@ async function run() {
       let query = {};
 
       if (userEmail) {
-        console.log(userEmail);
         query = {
           reviewer_email: userEmail,
         };
@@ -587,7 +586,6 @@ async function run() {
     });
 
     app.get("/allapply", verifyToken, async (req, res) => {
-      console.log("data");
       try {
         const result = await applyCollection.find().toArray();
 
