@@ -1358,7 +1358,11 @@ async function run() {
       }
     };
 
-    app.post("/apply", verifyToken, async (req, res) => {
+    app.post("/apply", verifyToken, loadAuthUser, async (req, res) => {
+      const role = req.authUser?.role;
+      if (role !== "user") {
+        return res.status(403).json({ message: "forbidden: only students can apply" });
+      }
       const applyData = req.body;
       try {
         const result = await applyCollection.insertOne(applyData);
