@@ -34,12 +34,24 @@ History: `docs/TASK_HISTORY.md` · Narrative: `docs/HANDOFF_LOG.md` · Deploy: `
 - [x] `express.json` limit 100kb, security headers (nosniff/DENY/XSS/Referrer/Permissions-Policy)
 - [x] Rate limiter `POST /jwt` 20/min/IP (429) — commit `0acbbfe`
 
+## DONE — Modular Architecture (2026-09-02, commit 7af9ab4)
+
+- [x] `index.js` 1558-line monolith -> layered architecture: `src/app.js` + `src/server.js` + `shim index.js` + `api/index.js` (Vercel)
+- [x] `src/config/{env.js,db.js}`: env validation + lazy Mongo singleton + 9 indexes (isolated from app)
+- [x] `src/middleware/*`: verifyToken, loadAuthUser, authorize (6 guards), security, rateLimit, errorHandler
+- [x] `src/utils/*`: asyncHandler, objectId, pagination
+- [x] `src/services/*`: review.service (recalcRating), scholarship.service (filter/sort/normalize)
+- [x] `src/controllers/*`: 7 controllers (auth, user 12 handlers, scholarship 5, saved 4, inquiry 2, review 9, apply 6) with asyncHandler
+- [x] `src/routes/*`: 7 routers mounted in app.js — preserves all typo aliases + pagination, no API break
+- [x] `src/app.js`: lazy ensureDb middleware (health / no DB), 404 + errorHandler, CORS 3 origins
+- [x] `vercel.json`: legacy builds -> rewrites to /api/index.js; `package.json`: main src/server.js + scripts dev/start/lint/check
+- [x] `api/index.js` + `.env.example`; verified GET / 200 without DB, GET /allScholership 200 with DB
+
 ---
 
 ## BACKLOG / KNOWN GAPS
 
-- [ ] Add automated tests (no test framework; `npm test` placeholder).
-- [ ] Split `index.js` into route controllers / middleware modules (single 1533-line file).
-- [ ] Add schema validation for scholarship/review/application payloads.
-- [ ] Centralize role guard helpers (`verifyAdmin` etc. inline).
+- [ ] Add automated tests (vitest + supertest for src/controllers).
+- [ ] Add zod schema validation for scholarship/review/application payloads.
+- [ ] Consider TypeScript migration (keep JS for now to minimize Vercel risk).
 

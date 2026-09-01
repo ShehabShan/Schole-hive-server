@@ -8,6 +8,24 @@ which is the master narrative — keep the two consistent.
 
 ---
 
+## 2026-09-02 — Modular architecture refactor (commit 7af9ab4)
+
+**What was done**
+- **Monolith 1558 lines -> layered architecture**: `src/app.js` (Express factory + lazy DB middleware), `src/server.js` (listen + export), `index.js` shim, `api/index.js` Vercel entry, 7 route modules + 7 controllers + 6 middleware + 2 services + 3 utils.
+- **Config**: `src/config/env.js` (validated PORT/NODE_ENV/MONGO_URI/ACCESS_TOKEN_SECRET/ADMIN_EMAILS), `src/config/db.js` (singleton MongoClient, getCollections, ensureIndexes 9 indexes, handle text-index apiStrict error).
+- **Middleware**: `verifyToken`, `loadAuthUser`, `authorize` (verifyAdmin/Modaretor/SuperAdmin/Institution/ScholarshipEditor/Owner/OwnerModifiable), `security` (5 headers), `rateLimit` (auth 20/min), `errorHandler` + `asyncHandler`.
+- **Verification**: `node --check` all files, `GET /` 200 without DB, `GET /allScholership` 200 with real DB (live data returned), no API break — all original aliases preserved.
+
+**Decisions**
+- Keep CommonJS (`require`) not ESM/TS to minimize Vercel `@vercel/node` risk; TS/zod deferred to next backlog.
+- Lazy DB via `ensureDb` middleware — health check bypasses DB, all other routes await `connect()` on first request (works for both local `npm run dev` and Vercel serverless cold start).
+- `vercel.json` migrated `builds` -> `rewrites` to modern format; shim `index.js` kept for backward compat.
+
+**Left / next**
+- Add vitest+supertest, zod validation, update `AGENTS.md` layout section.
+
+---
+
 ## 2026-09-02 — Role portals, institution role + approvals + scholarship ownership (branch `feature/login-roles`, committed `295e71e`)
 
 **What was done**
