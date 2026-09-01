@@ -61,6 +61,7 @@ async function run() {
     const usersCollection = database.collection("users");
     const applyCollection = database.collection("apply");
     const savedCollection = database.collection("saved");
+    const inquiriesCollection = database.collection("inquiries");
 
     // review indexes: 1 per (user, scholarship) + filter by scholarship+status
     try {
@@ -82,6 +83,8 @@ async function run() {
       );
       await savedCollection.createIndex({ userEmail: 1, scholarshipId: 1 }, { unique: true, background: true });
       await savedCollection.createIndex({ userEmail: 1, savedAt: -1 }, { background: true });
+      await inquiriesCollection.createIndex({ scholarshipId: 1, createdAt: -1 }, { background: true });
+      await inquiriesCollection.createIndex({ email: 1 }, { background: true });
     } catch (e) {
       console.log("scholarship/saved index warning", e.message);
     }
@@ -575,6 +578,16 @@ async function run() {
       if (id === "stats") return handleScholarshipStats(req, res);
       try {
         const result = await scholershipCollection.findOne({ _id: new ObjectId(id) });
+        if (result) {
+          // backfill gallery for old docs
+          if (!Array.isArray(result.gallery) || result.gallery.length === 0) {
+            result.gallery = [result.universityImage].filter(Boolean);
+          }
+          if (!Array.isArray(result.documents)) result.documents = [];
+          if (!Array.isArray(result.requirements)) result.requirements = [];
+          if (!Array.isArray(result.faqs)) result.faqs = [];
+          if (!Array.isArray(result.highlights)) result.highlights = [];
+        }
         res.status(200).json({ message: "allScholarship fetching successfull", data: result });
       } catch (error) {
         res.status(500).json({ error: error.message });
@@ -587,6 +600,19 @@ async function run() {
       if (!Array.isArray(doc.eligibility)) doc.eligibility = doc.eligibility ? [String(doc.eligibility)] : [];
       if (!Array.isArray(doc.benefits)) doc.benefits = doc.benefits ? [String(doc.benefits)] : [];
       if (!Array.isArray(doc.tags)) doc.tags = doc.tags ? [String(doc.tags)] : [];
+      if (!Array.isArray(doc.gallery)) doc.gallery = doc.gallery ? (Array.isArray(doc.gallery) ? doc.gallery : [String(doc.gallery)]) : [];
+      if (!Array.isArray(doc.documents)) doc.documents = doc.documents ? [String(doc.documents)] : [];
+      if (!Array.isArray(doc.requirements)) doc.requirements = doc.requirements ? [String(doc.requirements)] : [];
+      if (!Array.isArray(doc.faqs)) doc.faqs = [];
+      else doc.faqs = doc.faqs.slice(0, 10).map((f) => ({ q: String(f.q || f.question || "").slice(0, 200), a: String(f.a || f.answer || "").slice(0, 800) })).filter((f) => f.q && f.a);
+      if (!Array.isArray(doc.highlights)) doc.highlights = doc.highlights ? [String(doc.highlights)] : [];
+      if (doc.videoUrl) doc.videoUrl = String(doc.videoUrl).trim().slice(0, 500) || null;
+      if (doc.videoPoster) doc.videoPoster = String(doc.videoPoster).trim().slice(0, 500) || null;
+      if (doc.brochureUrl) doc.brochureUrl = String(doc.brochureUrl).trim().slice(0, 500) || null;
+      if (doc.mapUrl) doc.mapUrl = String(doc.mapUrl).trim().slice(0, 500) || null;
+      // ensure gallery contains at least universityImage
+      if (doc.gallery.length === 0 && doc.universityImage) doc.gallery = [doc.universityImage];
+      doc.gallery = doc.gallery.map((u) => String(u).trim()).filter(Boolean).slice(0, 8);
       if (!doc.currency) doc.currency = "USD";
       if (!doc.duration) doc.duration = doc.duration || null;
       if (doc.applicationFees !== undefined) doc.applicationFees = Number(doc.applicationFees);
@@ -623,6 +649,15 @@ async function run() {
       if (Array.isArray(body.eligibility)) body.eligibility = body.eligibility.map((s) => String(s).trim()).filter(Boolean).slice(0, 20);
       if (Array.isArray(body.benefits)) body.benefits = body.benefits.map((s) => String(s).trim()).filter(Boolean).slice(0, 20);
       if (Array.isArray(body.tags)) body.tags = body.tags.map((s) => String(s).trim()).filter(Boolean).slice(0, 20);
+      if (Array.isArray(body.gallery)) body.gallery = body.gallery.map((s) => String(s).trim()).filter(Boolean).slice(0, 8);
+      if (Array.isArray(body.documents)) body.documents = body.documents.map((s) => String(s).trim()).filter(Boolean).slice(0, 20);
+      if (Array.isArray(body.requirements)) body.requirements = body.requirements.map((s) => String(s).trim()).filter(Boolean).slice(0, 20);
+      if (Array.isArray(body.highlights)) body.highlights = body.highlights.map((s) => String(s).trim()).filter(Boolean).slice(0, 10);
+      if (Array.isArray(body.faqs)) body.faqs = body.faqs.slice(0, 10).map((f) => ({ q: String(f.q || f.question || "").slice(0, 200), a: String(f.a || f.answer || "").slice(0, 800) })).filter((f) => f.q && f.a);
+      if (body.videoUrl !== undefined) body.videoUrl = body.videoUrl ? String(body.videoUrl).trim().slice(0, 500) : null;
+      if (body.videoPoster !== undefined) body.videoPoster = body.videoPoster ? String(body.videoPoster).trim().slice(0, 500) : null;
+      if (body.brochureUrl !== undefined) body.brochureUrl = body.brochureUrl ? String(body.brochureUrl).trim().slice(0, 500) : null;
+      if (body.mapUrl !== undefined) body.mapUrl = body.mapUrl ? String(body.mapUrl).trim().slice(0, 500) : null;
       try {
         const result = await scholershipCollection.updateOne({ _id: new ObjectId(id) }, { $set: body });
         if (result.matchedCount === 0) return res.status(404).json({ message: "Scholarship not found" });
@@ -734,6 +769,33 @@ async function run() {
       const sid = String(req.params.id).trim();
       const doc = await savedCollection.findOne({ userEmail: req.decoded.email, scholarshipId: sid });
       res.json({ saved: !!doc });
+    });
+
+    // inquiries — Ask a question on scholarship detail
+    app.post("/inquiries", async (req, res) => {
+      const { scholarshipId, name, email, question } = req.body;
+      const sid = String(scholarshipId || "").trim();
+      if (!sid) return res.status(400).json({ message: "scholarshipId required" });
+      try { new ObjectId(sid); } catch { return res.status(400).json({ message: "invalid scholarshipId" }); }
+      const cleanName = String(name || "").trim().slice(0, 80);
+      const cleanEmail = String(email || "").trim().toLowerCase().slice(0, 120);
+      const cleanQ = String(question || "").trim();
+      if (cleanQ.length < 10 || cleanQ.length > 1000) return res.status(400).json({ message: "question 10-1000 chars" });
+      if (!cleanEmail.includes("@")) return res.status(400).json({ message: "valid email required" });
+      try {
+        const doc = { scholarshipId: sid, name: cleanName || "Anonymous", email: cleanEmail, question: cleanQ, createdAt: new Date(), status: "open" };
+        const result = await inquiriesCollection.insertOne(doc);
+        res.status(201).json({ message: "Inquiry sent", data: result });
+      } catch (e) { res.status(500).json({ error: e.message }); }
+    });
+    app.get("/inquiries", verifyToken, loadAuthUser, verifyModaretor, async (req, res) => {
+      try {
+        const { scholarshipId } = req.query;
+        const filter = {};
+        if (scholarshipId) filter.scholarshipId = String(scholarshipId);
+        const data = await inquiriesCollection.find(filter).sort({ createdAt: -1 }).limit(100).toArray();
+        res.json({ data });
+      } catch (e) { res.status(500).json({ error: e.message }); }
     });
 
     app.post("/addReviews", verifyToken, loadAuthUser, async (req, res) => {
