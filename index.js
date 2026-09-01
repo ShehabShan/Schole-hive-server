@@ -165,17 +165,18 @@ async function run() {
     // user collection
 
     app.post("/users", async (req, res) => {
-      const user = req.body;
-      const query = { email: user.email };
+      const incoming = req.body;
+      if (!incoming?.email) return res.status(400).json({ message: "email required" });
+      const query = { email: String(incoming.email).toLowerCase().trim() };
 
       try {
         const existingUser = await usersCollection.findOne(query);
-
         if (existingUser) {
-          return res.send({
-            message: "user already exist",
-            data: { insertedId: null },
-          });
+          // sync photoURL if provided and missing
+          if (incoming.photoURL && !existingUser.photoURL) {
+            await usersCollection.updateOne(query, { $set: { photoURL: incoming.photoURL, updatedAt: new Date() } });
+          }
+          return res.send({ message: "user already exist", data: { insertedId: null } });
         }
 
         const adminEmails = (process.env.ADMIN_EMAILS || "")
@@ -183,9 +184,25 @@ async function run() {
           .map((email) => email.trim().toLowerCase())
           .filter(Boolean);
 
-        if (adminEmails.includes((user.email || "").toLowerCase())) {
+        const user = {
+          name: String(incoming.name || "").trim() || null,
+          email: String(incoming.email).toLowerCase().trim(),
+          role: incoming.role || "user",
+          photoURL: incoming.photoURL || null,
+          phone: incoming.phone || null,
+          bio: incoming.bio || null,
+          city: incoming.city || null,
+          country: incoming.country || null,
+          skills: Array.isArray(incoming.skills) ? incoming.skills.slice(0, 20) : [],
+          coverPhoto: incoming.coverPhoto || null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+
+        if (adminEmails.includes(user.email)) {
           user.role = "superadmin";
         }
+        if (!["user", "modaretor", "admin", "superadmin"].includes(user.role)) user.role = "user";
 
         const result = await usersCollection.insertOne(user);
         res
@@ -196,7 +213,10 @@ async function run() {
       }
     });
 
-    app.get("/users", verifyToken, async (req, res) => {
+    app.get("/users", verifyToken, loadAuthUser, async (req, res) => {
+      const role = req.authUser?.role;
+      const isStaff = role === "admin" || role === "superadmin" || role === "modaretor";
+      if (!isStaff) return res.status(403).json({ message: "forbidden: admin only" });
       try {
         const result = await usersCollection.find().toArray();
         res.status(200).json({
@@ -280,17 +300,76 @@ async function run() {
       res.send({ isUser });
     });
 
-    app.get("/user", async (req, res) => {
+    app.get("/user", verifyToken, loadAuthUser, async (req, res) => {
       const email = req.query.email;
-      const query = { email: email };
-
+      if (!email) return res.status(400).json({ message: "email query required" });
+      const role = req.authUser?.role;
+      const isStaff = role === "admin" || role === "superadmin" || role === "modaretor";
+      if (String(email).toLowerCase() !== String(req.decoded.email).toLowerCase() && !isStaff) {
+        return res.status(403).json({ message: "forbidden: can only view own profile" });
+      }
+      const query = { email: String(email).toLowerCase().trim() };
       try {
         const result = await usersCollection.findOne(query);
+        res.status(200).json({ message: "user fetched successfully", data: result });
+      } catch (error) {
+        res.status(500).json({ error: error.message });
+      }
+    });
 
-        res.status(200).json({
-          message: "allScholarship fetcing successfull",
-          data: result,
-        });
+    // self profile: GET /users/me
+    app.get("/users/me", verifyToken, loadAuthUser, async (req, res) => {
+      try {
+        const me = await usersCollection.findOne({ email: req.decoded.email });
+        res.status(200).json({ message: "me fetched", data: me });
+      } catch (error) {
+        res.status(500).json({ error: error.message });
+      }
+    });
+
+    // self profile update: PATCH /users/me (whitelisted fields only, role not allowed)
+    app.patch("/users/me", verifyToken, loadAuthUser, async (req, res) => {
+      const allowed = ["name", "photoURL", "phone", "bio", "city", "country", "skills", "coverPhoto"];
+      const updates = {};
+      for (const key of allowed) {
+        if (req.body[key] !== undefined) updates[key] = req.body[key];
+      }
+      if (updates.name !== undefined) {
+        const n = String(updates.name).trim();
+        if (n.length < 2 || n.length > 80) return res.status(400).json({ message: "name 2-80 chars" });
+        updates.name = n;
+      }
+      if (updates.photoURL !== undefined && updates.photoURL) {
+        const u = String(updates.photoURL).trim();
+        if (u.length > 2000) return res.status(400).json({ message: "photoURL too long" });
+        updates.photoURL = u;
+      }
+      if (updates.coverPhoto !== undefined && updates.coverPhoto) {
+        const u = String(updates.coverPhoto).trim();
+        if (u.length > 2000) return res.status(400).json({ message: "coverPhoto too long" });
+        updates.coverPhoto = u;
+      }
+      if (updates.phone !== undefined && updates.phone) {
+        const p = String(updates.phone).trim().slice(0, 30);
+        updates.phone = p;
+      }
+      if (updates.bio !== undefined && updates.bio) {
+        const b = String(updates.bio).trim();
+        if (b.length > 600) return res.status(400).json({ message: "bio max 600 chars" });
+        updates.bio = b;
+      }
+      if (updates.city !== undefined) updates.city = String(updates.city).trim().slice(0, 80) || null;
+      if (updates.country !== undefined) updates.country = String(updates.country).trim().slice(0, 80) || null;
+      if (updates.skills !== undefined) {
+        if (!Array.isArray(updates.skills)) return res.status(400).json({ message: "skills must be array" });
+        updates.skills = updates.skills.map((s) => String(s).trim()).filter(Boolean).slice(0, 20);
+      }
+      if (Object.keys(updates).length === 0) return res.status(400).json({ message: "nothing to update" });
+      updates.updatedAt = new Date();
+      try {
+        const result = await usersCollection.updateOne({ email: req.decoded.email }, { $set: updates });
+        const updated = await usersCollection.findOne({ email: req.decoded.email });
+        res.status(200).json({ message: "profile updated", data: result, user: updated });
       } catch (error) {
         res.status(500).json({ error: error.message });
       }
