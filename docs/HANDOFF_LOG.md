@@ -8,6 +8,20 @@ which is the master narrative — keep the two consistent.
 
 ---
 
+## 2026-09-01 — Profile full-fledged + review moderation
+
+**What was done**
+- Moved review system to verified (`accepted`-only, 1-per, `pending→approved` moderation, `verifyModaretor`, indexes, recalc).
+- Added profile persistence: `POST /users` stores `photoURL/createdAt`, secures `GET /user` + `GET /users` staff-only, new `GET /users/me` + `PATCH /users/me` whitelist (`ab9b2c1`). Pushed `ab9b2c1`+`1763399`.
+
+**Blocker**
+- Vercel `VERCEL_TOKEN` invalid — live `https://server-six-vert.vercel.app` not deployed. Rotate then `npx vercel --prod --yes --token`.
+
+**Left / next**
+- Deploy server, verify `PATCH /users/me` + review gate live.
+
+---
+
 ## 2026-09-01 — Proper review moderation: verified-applicant, 1-per-scholarship
 
 **What was done**
