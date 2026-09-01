@@ -8,6 +8,19 @@ which is the master narrative — keep the two consistent.
 
 ---
 
+## 2026-09-01 — Proper review moderation: verified-applicant, 1-per-scholarship
+
+**What was done**
+- Mirrors client `https://github.com/ShehabShan/School-Hive` review work (`3e7cd5e`): `verifyModaretor`, indexes, `recalcScholarshipRating`, secured `POST /addReviews` (accepted-only gate + dup 409 + pending), `GET /allReviews` ownership+status filter safe join, `GET /allReviews/:id` approved-only, `DELETE` owner|staff + `PATCH` edit & `PATCH /moderate` + `GET /reviews/stats`. `node --check` ok, pushed to `main`.
+
+**Blocker**
+- Vercel deploy failed: `The token provided via --token is not valid` (`VERCEL_TOKEN` expired). Live `https://server-six-vert.vercel.app` not yet updated. Rotate token then `npx vercel --prod --yes --token "$VERCEL_TOKEN"`.
+
+**Left / next**
+- Deploy server, verify `POST /addReviews` 403/409 and moderation recalc on live.
+
+---
+
 ## 2026-08-31 — Session-continuity system setup (mirror)
 
 **What was done**
