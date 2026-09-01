@@ -29,12 +29,17 @@ History: `docs/TASK_HISTORY.md` · Narrative: `docs/HANDOFF_LOG.md` · Deploy: `
 - [ ] `GET /scholarships/stats` (and `/allScholership/stats`) real counts + sums
 - [ ] Extend scholarship schema optional `eligibility/benefits/duration/tags/currency` (backward compat)
 
+## DONE — Security Hardening (2026-09-02)
+
+- [x] `express.json` limit 100kb, security headers (nosniff/DENY/XSS/Referrer/Permissions-Policy)
+- [x] Rate limiter `POST /jwt` 20/min/IP (429) — commit `0acbbfe`
+
 ---
 
 ## BACKLOG / KNOWN GAPS
 
 - [ ] Add automated tests (no test framework; `npm test` placeholder).
-- [ ] Split `index.js` into route controllers / middleware modules (single 674-line file).
+- [ ] Split `index.js` into route controllers / middleware modules (single 1533-line file).
 - [ ] Add schema validation for scholarship/review/application payloads.
 - [ ] Centralize role guard helpers (`verifyAdmin` etc. inline).
 
