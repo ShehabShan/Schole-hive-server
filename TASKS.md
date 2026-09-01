@@ -9,7 +9,17 @@ History: `docs/TASK_HISTORY.md` · Narrative: `docs/HANDOFF_LOG.md` · Deploy: `
 
 ## IN PROGRESS
 
-- Scholarship Transformation (2026-09-01) — server foundations for faceted search + saved + stats
+- Login / role system (feature/login-roles) — SERVER DONE, waiting on client branch
+
+## DONE — Login / Role System (2026-09-02, feature/login-roles)
+
+- [x] New `institution` role + `status` (`active|pending|approved|rejected`); org fields (`orgName/orgType/orgCountry/orgWebsite/orgDescription`)
+- [x] `POST /users` derives role from `accountType` (`student|institution`) — no longer trusts client `role` (also closes privilege-escalation hole); institution signup → `pending`; `ADMIN_EMAILS` → superadmin
+- [x] Guards: `verifyInstitution`, `verifyScholarshipEditor` (superadmin or approved institution), `verifyScholarshipOwner` (superadmin or `createdBy`-owning institution); scholarship create/edit/delete now exclude admin/mod entirely
+- [x] `createdBy`/`createdByRole` stamped on scholarship create
+- [x] Approval API: `GET /institutions`, `GET /institutions/pending`, `PATCH /users/institution/:id` (`{status, reason}`), `GET /users/institution/:email`
+- [x] Application access control: `GET /apply` own-or-staff, `GET /allapply` staff / institution-owned (createdBy) / self, `GET /singleApply/:id` + cancel + accepted now `verifyToken` + ownership-guarded (institutions can accept own applicants); `/reviews/removed` + `/reviews/history/:id` unchanged
+- [x] `GET /users/public/:email` + `GET /users/me` + `PATCH /users/me` support org fields + status
 
 ## TODO — Scholarship Transformation
 

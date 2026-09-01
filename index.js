@@ -145,6 +145,42 @@ async function run() {
       next();
     };
 
+    const verifyInstitution = async (req, res, next) => {
+      const u = req.authUser;
+      if (u?.role !== "institution" || u?.status !== "approved") {
+        return res.status(403).send({ message: "forbidden: approved institution only" });
+      }
+      next();
+    };
+
+    const verifyScholarshipEditor = async (req, res, next) => {
+      const u = req.authUser;
+      const isSuper = u?.role === "superadmin";
+      const isInstitution = u?.role === "institution" && u?.status === "approved";
+      if (!isSuper && !isInstitution) {
+        return res.status(403).send({ message: "forbidden: superadmin or approved institution only" });
+      }
+      next();
+    };
+
+    const verifyScholarshipOwner = async (req, res, next) => {
+      const u = req.authUser;
+      if (u?.role === "superadmin") return next();
+      if (u?.role !== "institution" || u?.status !== "approved") {
+        return res.status(403).send({ message: "forbidden: superadmin or owning institution only" });
+      }
+      try {
+        const sch = await scholershipCollection.findOne({ _id: new ObjectId(req.params.id) });
+        if (!sch) return res.status(404).json({ message: "Scholarship not found" });
+        if (String(sch.createdBy || "").toLowerCase() !== String(u.email).toLowerCase()) {
+          return res.status(403).send({ message: "forbidden: you can only modify your own scholarship" });
+        }
+      } catch (e) {
+        return res.status(400).json({ message: "invalid scholarship id" });
+      }
+      next();
+    };
+
     const verifyOwnerModifiable = async (req, res, next) => {
       const target = await usersCollection.findOne({
         _id: new ObjectId(req.params.id),
@@ -195,9 +231,20 @@ async function run() {
       try {
         const existingUser = await usersCollection.findOne(query);
         if (existingUser) {
-          // sync photoURL if provided and missing
-          if (incoming.photoURL && !existingUser.photoURL) {
-            await usersCollection.updateOne(query, { $set: { photoURL: incoming.photoURL, updatedAt: new Date() } });
+          // sync optional fields if missing (backfill for legacy docs)
+          const syncSet = {};
+          if (incoming.photoURL && !existingUser.photoURL) syncSet.photoURL = incoming.photoURL;
+          if (String(incoming.accountType || "student").toLowerCase() === "institution") {
+            for (const f of ["orgName", "orgType", "orgCountry", "orgWebsite", "orgDescription"]) {
+              if (incoming[f] && !existingUser[f]) syncSet[f] = String(incoming[f]).slice(0, 2000);
+            }
+            if (existingUser.role === "institution" && !existingUser.status) syncSet.status = "pending";
+          }
+          if (!existingUser.status && existingUser.role === "superadmin") syncSet.status = "active";
+          if (existingUser.role === "institution" && !existingUser.status) syncSet.status = "pending";
+          if (Object.keys(syncSet).length > 0) {
+            syncSet.updatedAt = new Date();
+            await usersCollection.updateOne(query, { $set: syncSet });
           }
           return res.send({ message: "user already exist", data: { insertedId: null } });
         }
@@ -207,10 +254,15 @@ async function run() {
           .map((email) => email.trim().toLowerCase())
           .filter(Boolean);
 
+        // role is derived server-side — never trusted from the client
+        const accountType = String(incoming.accountType || "student").toLowerCase();
+        const isInstitution = accountType === "institution";
+
         const user = {
           name: String(incoming.name || "").trim() || null,
           email: String(incoming.email).toLowerCase().trim(),
-          role: incoming.role || "user",
+          role: isInstitution ? "institution" : "user",
+          status: isInstitution ? "pending" : "active",
           photoURL: incoming.photoURL || null,
           phone: incoming.phone || null,
           bio: incoming.bio || null,
@@ -222,10 +274,24 @@ async function run() {
           updatedAt: new Date(),
         };
 
+        if (isInstitution) {
+          user.orgName = String(incoming.orgName || "").trim().slice(0, 120) || null;
+          user.orgType = ["university", "college", "school"].includes(String(incoming.orgType || "").toLowerCase())
+            ? String(incoming.orgType).toLowerCase()
+            : "university";
+          user.orgCountry = String(incoming.orgCountry || "").trim().slice(0, 80) || null;
+          user.orgWebsite = String(incoming.orgWebsite || "").trim().slice(0, 300) || null;
+          user.orgDescription = String(incoming.orgDescription || "").trim().slice(0, 2000) || null;
+          user.statusNote = null;
+          user.reviewedAt = null;
+          user.reviewedBy = null;
+        }
+
         if (adminEmails.includes(user.email)) {
           user.role = "superadmin";
+          user.status = "active";
         }
-        if (!["user", "modaretor", "admin", "superadmin"].includes(user.role)) user.role = "user";
+        if (!["user", "modaretor", "admin", "superadmin", "institution"].includes(user.role)) user.role = "user";
 
         const result = await usersCollection.insertOne(user);
         res
@@ -358,6 +424,12 @@ async function run() {
           bio: u.bio,
           skills: u.skills,
           role: u.role,
+          status: u.status,
+          orgName: u.orgName,
+          orgType: u.orgType,
+          orgCountry: u.orgCountry,
+          orgWebsite: u.orgWebsite,
+          orgDescription: u.orgDescription,
           createdAt: u.createdAt,
         };
         res.json({ message: "public profile", data: pub });
@@ -378,7 +450,7 @@ async function run() {
 
     // self profile update: PATCH /users/me (whitelisted fields only, role not allowed)
     app.patch("/users/me", verifyToken, loadAuthUser, async (req, res) => {
-      const allowed = ["name", "photoURL", "phone", "bio", "city", "country", "skills", "coverPhoto"];
+      const allowed = ["name", "photoURL", "phone", "bio", "city", "country", "skills", "coverPhoto", "orgName", "orgType", "orgCountry", "orgWebsite", "orgDescription"];
       const updates = {};
       for (const key of allowed) {
         if (req.body[key] !== undefined) updates[key] = req.body[key];
@@ -413,6 +485,15 @@ async function run() {
         if (!Array.isArray(updates.skills)) return res.status(400).json({ message: "skills must be array" });
         updates.skills = updates.skills.map((s) => String(s).trim()).filter(Boolean).slice(0, 20);
       }
+      if (updates.orgName !== undefined) updates.orgName = String(updates.orgName).trim().slice(0, 120) || null;
+      if (updates.orgType !== undefined) {
+        updates.orgType = ["university", "college", "school"].includes(String(updates.orgType).toLowerCase())
+          ? String(updates.orgType).toLowerCase()
+          : "university";
+      }
+      if (updates.orgCountry !== undefined) updates.orgCountry = String(updates.orgCountry).trim().slice(0, 80) || null;
+      if (updates.orgWebsite !== undefined) updates.orgWebsite = String(updates.orgWebsite).trim().slice(0, 300) || null;
+      if (updates.orgDescription !== undefined) updates.orgDescription = String(updates.orgDescription).trim().slice(0, 2000) || null;
       if (Object.keys(updates).length === 0) return res.status(400).json({ message: "nothing to update" });
       updates.updatedAt = new Date();
       try {
@@ -526,6 +607,77 @@ async function run() {
           message: "user deleted successfully",
           data: result,
         });
+      } catch (error) {
+        res.status(500).json({ error: error.message });
+      }
+    });
+
+    // institution permission + approval API (superadmin only)
+
+    app.get("/users/institution/:email", verifyToken, loadAuthUser, async (req, res) => {
+      const email = String(req.params.email || "").toLowerCase().trim();
+      const isSelf = email === String(req.decoded.email).toLowerCase();
+      if (!isSelf && req.authUser?.role !== "superadmin") {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+      const user = await usersCollection.findOne({ email });
+      res.send({
+        isInstitution: user?.role === "institution",
+        role: user?.role || null,
+        status: user?.status || null,
+        email,
+      });
+    });
+
+    app.get("/institutions", verifyToken, loadAuthUser, verifySuperAdmin, async (req, res) => {
+      const status = String(req.query.status || "pending");
+      const filter = { role: "institution" };
+      if (status !== "all") filter.status = status;
+      try {
+        const data = await usersCollection.find(filter).sort({ createdAt: -1 }).limit(500).toArray();
+        res.json({ message: "institutions fetched", data });
+      } catch (error) {
+        res.status(500).json({ error: error.message });
+      }
+    });
+
+    app.get("/institutions/pending", verifyToken, loadAuthUser, verifySuperAdmin, async (req, res) => {
+      try {
+        const data = await usersCollection.find({ role: "institution", status: "pending" }).sort({ createdAt: -1 }).limit(200).toArray();
+        res.json({ message: "pending institutions", data });
+      } catch (error) {
+        res.status(500).json({ error: error.message });
+      }
+    });
+
+    app.patch("/users/institution/:id", verifyToken, loadAuthUser, verifySuperAdmin, async (req, res) => {
+      const id = req.params.id;
+      let oid;
+      try {
+        oid = new ObjectId(id);
+      } catch {
+        return res.status(400).json({ message: "invalid id" });
+      }
+      const { status: newStatus, reason } = req.body;
+      const allowed = ["approved", "rejected", "pending"];
+      if (!allowed.includes(String(newStatus))) {
+        return res.status(400).json({ message: "status must be approved|rejected|pending" });
+      }
+      try {
+        const target = await usersCollection.findOne({ _id: oid, role: "institution" });
+        if (!target) return res.status(404).json({ message: "institution not found" });
+        const set = {
+          status: String(newStatus),
+          statusNote: reason ? String(reason).slice(0, 500) : null,
+          reviewedAt: new Date(),
+          reviewedBy: req.decoded.email,
+          updatedAt: new Date(),
+        };
+        if (String(newStatus) === "approved") set.approvedAt = new Date();
+        if (String(newStatus) === "rejected") set.rejectedAt = new Date();
+        const result = await usersCollection.updateOne({ _id: oid }, { $set: set });
+        const updated = await usersCollection.findOne({ _id: oid });
+        res.json({ message: "institution status updated", data: result, user: updated });
       } catch (error) {
         res.status(500).json({ error: error.message });
       }
@@ -652,6 +804,9 @@ async function run() {
       if (doc.rating === undefined) doc.rating = 0;
       if (doc.reviewsCount === undefined) doc.reviewsCount = 0;
       if (!doc.postDate) doc.postDate = new Date().toISOString().slice(0, 10);
+      const auth = req.authUser || {};
+      doc.createdBy = auth.email || null;
+      doc.createdByRole = auth.role || null;
       try {
         const result = await scholershipCollection.insertOne(doc);
         res.status(201).json({ message: "Scholarship added successfully", data: result });
@@ -731,18 +886,18 @@ async function run() {
     app.get("/allScholarships/:id", handleGetScholarshipById);
     app.get("/scholarships/:id", handleGetScholarshipById);
 
-    // create / update / delete — secured (moderator+)
-    app.post("/allScholership", verifyToken, loadAuthUser, verifyModaretor, handleCreateScholarship);
-    app.post("/allScholarships", verifyToken, loadAuthUser, verifyModaretor, handleCreateScholarship);
-    app.post("/scholarships", verifyToken, loadAuthUser, verifyModaretor, handleCreateScholarship);
+    // create / update / delete — secured (superadmin or approved institution; owner-only for institutions)
+    app.post("/allScholership", verifyToken, loadAuthUser, verifyScholarshipEditor, handleCreateScholarship);
+    app.post("/allScholarships", verifyToken, loadAuthUser, verifyScholarshipEditor, handleCreateScholarship);
+    app.post("/scholarships", verifyToken, loadAuthUser, verifyScholarshipEditor, handleCreateScholarship);
 
-    app.delete("/allScholership/:id", verifyToken, loadAuthUser, verifyModaretor, handleDeleteScholarship);
-    app.delete("/allScholarships/:id", verifyToken, loadAuthUser, verifyModaretor, handleDeleteScholarship);
-    app.delete("/scholarships/:id", verifyToken, loadAuthUser, verifyModaretor, handleDeleteScholarship);
+    app.delete("/allScholership/:id", verifyToken, loadAuthUser, verifyScholarshipOwner, handleDeleteScholarship);
+    app.delete("/allScholarships/:id", verifyToken, loadAuthUser, verifyScholarshipOwner, handleDeleteScholarship);
+    app.delete("/scholarships/:id", verifyToken, loadAuthUser, verifyScholarshipOwner, handleDeleteScholarship);
 
-    app.patch("/allScholership/:id", verifyToken, loadAuthUser, verifyModaretor, handlePatchScholarship);
-    app.patch("/allScholarships/:id", verifyToken, loadAuthUser, verifyModaretor, handlePatchScholarship);
-    app.patch("/scholarships/:id", verifyToken, loadAuthUser, verifyModaretor, handlePatchScholarship);
+    app.patch("/allScholership/:id", verifyToken, loadAuthUser, verifyScholarshipOwner, handlePatchScholarship);
+    app.patch("/allScholarships/:id", verifyToken, loadAuthUser, verifyScholarshipOwner, handlePatchScholarship);
+    app.patch("/scholarships/:id", verifyToken, loadAuthUser, verifyScholarshipOwner, handlePatchScholarship);
 
     // saved / wishlist — userEmail + scholarshipId unique
     app.post("/saved", verifyToken, loadAuthUser, async (req, res) => {
@@ -1181,7 +1336,27 @@ async function run() {
       }
     });
 
-    // apply api
+// apply api
+
+    const canAccessApplication = (req, doc, scholarship) => {
+      const role = req.authUser?.role;
+      if (role === "admin" || role === "superadmin" || role === "modaretor") return true;
+      if (String(doc?.email || "").toLowerCase() === String(req.decoded?.email || "").toLowerCase()) return true;
+      if (role === "institution" && req.authUser?.status === "approved" && scholarship) {
+        return String(scholarship?.createdBy || "").toLowerCase() === String(req.authUser.email).toLowerCase();
+      }
+      return false;
+    };
+
+    const findApplyScholarship = async (doc) => {
+      const sid = doc?.scholarship_id || doc?.scholarshipId;
+      if (!sid) return null;
+      try {
+        return await scholershipCollection.findOne({ _id: new ObjectId(sid) });
+      } catch {
+        return null;
+      }
+    };
 
     app.post("/apply", verifyToken, async (req, res) => {
       const applyData = req.body;
@@ -1197,11 +1372,17 @@ async function run() {
       }
     });
 
-    app.get("/apply", verifyToken, async (req, res) => {
-      const email = req.query.email;
+    app.get("/apply", verifyToken, loadAuthUser, async (req, res) => {
+      const email = String(req.query.email || "").toLowerCase().trim();
+      if (!email) return res.status(400).json({ message: "email query required" });
+      const role = req.authUser?.role;
+      const isStaff = role === "admin" || role === "superadmin" || role === "modaretor";
+      if (email !== String(req.decoded.email).toLowerCase() && !isStaff) {
+        return res.status(403).json({ message: "forbidden: can only view own applications" });
+      }
       const query = { email: email };
       try {
-        const result = await applyCollection.find(query).toArray();
+        const result = await applyCollection.find(query).sort({ postDate: -1 }).toArray();
 
         res.status(200).json({
           message: "apply data added successfully",
@@ -1212,9 +1393,20 @@ async function run() {
       }
     });
 
-    app.get("/allapply", verifyToken, async (req, res) => {
+    app.get("/allapply", verifyToken, loadAuthUser, async (req, res) => {
+      const role = req.authUser?.role;
       try {
-        const result = await applyCollection.find().toArray();
+        let filter = {};
+        if (role === "admin" || role === "superadmin" || role === "modaretor") {
+          filter = {};
+        } else if (role === "institution" && req.authUser?.status === "approved") {
+          const owned = await scholershipCollection.find({ createdBy: req.decoded.email }).project({ _id: 1 }).toArray();
+          const ids = owned.map((s) => String(s._id));
+          filter = ids.length ? { scholarship_id: { $in: ids } } : { scholarship_id: "__none__" };
+        } else {
+          filter = { email: req.decoded.email };
+        }
+        const result = await applyCollection.find(filter).sort({ postDate: -1 }).toArray();
 
         res.status(200).json({
           message: "apply data added successfully",
@@ -1225,12 +1417,22 @@ async function run() {
       }
     });
 
-    app.get("/singleApply/:id", async (req, res) => {
+    app.get("/singleApply/:id", verifyToken, loadAuthUser, async (req, res) => {
       const id = req.params.id;
-      const query = { _id: new ObjectId(id) };
+      let oid;
+      try {
+        oid = new ObjectId(id);
+      } catch {
+        return res.status(400).json({ message: "invalid application id" });
+      }
+      const query = { _id: oid };
       try {
         const result = await applyCollection.findOne(query);
-
+        if (!result) return res.status(404).json({ message: "application not found" });
+        const scholarship = await findApplyScholarship(result);
+        if (!canAccessApplication(req, result, scholarship)) {
+          return res.status(403).json({ message: "forbidden" });
+        }
         res.status(200).json({
           message: "apply data added successfully",
           data: result,
@@ -1240,10 +1442,15 @@ async function run() {
       }
     });
 
-    app.patch("/allapply/cancel/:id", async (req, res) => {
+    app.patch("/allapply/cancel/:id", verifyToken, loadAuthUser, async (req, res) => {
       const id = req.params.id;
-
-      const filter = { _id: new ObjectId(id) };
+      let oid;
+      try {
+        oid = new ObjectId(id);
+      } catch {
+        return res.status(400).json({ message: "invalid application id" });
+      }
+      const filter = { _id: oid };
       const updateDoc = {
         $set: {
           applicationStatus: "rejected",
@@ -1251,6 +1458,12 @@ async function run() {
       };
 
       try {
+        const doc = await applyCollection.findOne(filter);
+        if (!doc) return res.status(404).json({ message: "application not found" });
+        const scholarship = await findApplyScholarship(doc);
+        if (!canAccessApplication(req, doc, scholarship)) {
+          return res.status(403).json({ message: "forbidden" });
+        }
         const result = await applyCollection.updateOne(filter, updateDoc);
 
         res.status(201).json({
@@ -1262,10 +1475,15 @@ async function run() {
       }
     });
 
-    app.patch("/allapply/accepted/:id", async (req, res) => {
+    app.patch("/allapply/accepted/:id", verifyToken, loadAuthUser, async (req, res) => {
       const id = req.params.id;
-
-      const filter = { _id: new ObjectId(id) };
+      let oid;
+      try {
+        oid = new ObjectId(id);
+      } catch {
+        return res.status(400).json({ message: "invalid application id" });
+      }
+      const filter = { _id: oid };
       const updateDoc = {
         $set: {
           applicationStatus: "accepted",
@@ -1273,10 +1491,20 @@ async function run() {
       };
 
       try {
+        const doc = await applyCollection.findOne(filter);
+        if (!doc) return res.status(404).json({ message: "application not found" });
+        const role = req.authUser?.role;
+        const isStaff = role === "admin" || role === "superadmin" || role === "modaretor";
+        const isOwnInstitution =
+          role === "institution" && req.authUser?.status === "approved" &&
+          canAccessApplication(req, doc, await findApplyScholarship(doc));
+        if (!isStaff && !isOwnInstitution) {
+          return res.status(403).json({ message: "forbidden" });
+        }
         const result = await applyCollection.updateOne(filter, updateDoc);
 
         res.status(201).json({
-          message: "application status completed ",
+          message: "apply data added successfully",
           data: result,
         });
       } catch (error) {
