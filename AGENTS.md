@@ -44,8 +44,10 @@ these endpoints with axios. Auth: JWT issued via `POST /jwt`, verified via
 
 ```bash
 npm install            # install deps
-npm run dev            # start locally on :5000 (NODE_ENV default) — reads .env
-npm start              # no-op placeholder currently
+npm run dev            # start locally on :5000 --watch (reads .env)
+npm start              # production start (node src/server.js)
+npm run check          # node --check syntax
+npm run lint           # eslint src
 ```
 
 - Local `.env` is gitignored. Required vars (also set in Vercel):
@@ -56,20 +58,13 @@ npm start              # no-op placeholder currently
 
 ## 5. Repository layout
 
-- `index.js` — the entire API in one file (Express app + MongoDB client + routes).
-  - Auth: `POST /jwt`, `POST /clear-jwt`, `verifyToken` middleware.
-  - Users: `POST /users`, `GET /users`, `GET /user?email=`, role checks
-    `GET /users/:role/:email` (`admin`, `superAdmin`, `modaretor`, `user`).
-    Roles: `user`, `modaretor`, `admin`, `superadmin` (owner, protected — cannot
-    be modified via role-change endpoints).
-  - Scholarships: `POST/GET /allScholership`, `GET/DELETE/PATCH /allScholership/:id`.
-  - Reviews: `POST /addReviews`, `GET /allReviews`, `GET /allReviews/:id`,
-    `DELETE /allReviews/:id`.
-  - Applications: `POST /apply`, `GET /apply`, `GET /allapply`,
-    `GET /singleApply/:id`, `PATCH /allapply/cancel/:id`, `PATCH /allapply/accepted/:id`.
-  - `GET /` — root status message.
-- `vercel.json` — routes all traffic to `index.js` via `@vercel/node`.
-- `package.json` — express, cors, dotenv, jsonwebtoken, mongodb, cookie-parser.
+- `src/server.js` — entry (creates app, listens; exports for Vercel). `index.js` is a shim -> `src/server.js` for backward compat; `api/index.js` is Vercel serverless entry.
+- `src/app.js` — Express factory: CORS + json limit + cookieParser + securityHeaders + lazy `ensureDb` + mount 7 routers + 404/errorHandler.
+- `src/config/` — `env.js` (validated PORT/MONGO_URI/ACCESS_TOKEN_SECRET/ADMIN_EMAILS), `db.js` (Mongo singleton + `ensureIndexes` 9 indexes).
+- `src/middleware/` — `verifyToken`, `loadAuthUser`, `authorize` (6 guards: admin/modaretor/superAdmin/institution/scholarshipEditor/Owner), `security`, `rateLimit` (20/min auth), `errorHandler` + `asyncHandler`.
+- `src/routes/` — 7 routers: `auth` (`POST /jwt`, `POST /clear-jwt`), `user` (`POST /users`, `GET /users`, `GET /user?email=`, role checks `GET /users/:role/:email`, `GET /users/me` + `PATCH`, institution approvals `GET /institutions`, `PATCH /users/institution/:id`), `scholarship` (`POST/GET /allScholership` + aliases `/scholarships`, `GET/DELETE/PATCH /:id`, `GET /stats`), `saved` (`POST/GET/DELETE /saved`), `inquiry` (`POST/GET /inquiries`), `review` (`POST /addReviews`, `GET /allReviews`, `GET /allReviews/:id`, `DELETE/PATCH/:id`, `PATCH /:id/moderate`, `GET /reviews/history|removed|stats`), `apply` (`POST /apply`, `GET /apply`, `GET /allapply`, `GET /singleApply/:id`, `PATCH /cancel|accepted`). Roles: `user`, `modaretor`, `admin`, `superadmin`, `institution` (owner protected).
+- `src/controllers/` + `src/services/` + `src/utils/` — thin controllers delegating to services (filter/sort, recalcRating) + utils (objectId, pagination, asyncHandler).
+- `vercel.json` — `rewrites` -> `api/index.js` via `@vercel/node`. `package.json` — express, cors, dotenv, jsonwebtoken, mongodb, cookie-parser.
 
 ## 6. Related repo
 
