@@ -37,6 +37,10 @@ Deploy procedure and credentials live in `docs/DEPLOY.md` / `docs/CREDENTIALS.md
 - [x] `PATCH /allReviews/:id/moderate` — staff only `approved|rejected|hidden|pending` + `moderatedBy/At`
 - [x] `GET /reviews/stats` — staff only counts
 
+### User & Admin Profile — Full-Fledged (2026-09-01)
+- [x] `POST /users` persists `photoURL/createdAt` (+ sync on dup), `GET /user` secured, `GET /users` staff-only
+- [x] `GET /users/me` + `PATCH /users/me` whitelist (name/photoURL/coverPhoto/phone/bio/city/country/skills) with validation
+
 ---
 
 ## IN PROGRESS
