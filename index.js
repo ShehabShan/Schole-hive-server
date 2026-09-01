@@ -61,6 +61,33 @@ async function run() {
     const usersCollection = database.collection("users");
     const applyCollection = database.collection("apply");
 
+    // review indexes: 1 per (user, scholarship) + filter by scholarship+status
+    try {
+      await reviewsCollection.createIndex({ reviewer_email: 1, scholarShip_id: 1 }, { unique: true, background: true });
+      await reviewsCollection.createIndex({ scholarShip_id: 1, status: 1 }, { background: true });
+      await reviewsCollection.createIndex({ status: 1, createdAt: -1 }, { background: true });
+    } catch (e) {
+      // index creation may fail if dup data exists - log but don't crash
+      console.log("index creation warning", e.message);
+    }
+
+    const recalcScholarshipRating = async (scholarShip_id) => {
+      try {
+        if (!scholarShip_id) return;
+        const sid = String(scholarShip_id);
+        const approved = await reviewsCollection.find({ scholarShip_id: sid, status: "approved" }).toArray();
+        if (approved.length === 0) {
+          await scholershipCollection.updateOne({ _id: new ObjectId(sid) }, { $set: { rating: 0, reviewsCount: 0 } });
+          return;
+        }
+        const sum = approved.reduce((a, r) => a + (Number(r.rating) || 0), 0);
+        const avg = Math.round((sum / approved.length) * 10) / 10;
+        await scholershipCollection.updateOne({ _id: new ObjectId(sid) }, { $set: { rating: avg, reviewsCount: approved.length } });
+      } catch (err) {
+        console.log("recalc rating error", err.message);
+      }
+    };
+
     const loadAuthUser = async (req, res, next) => {
       try {
         req.authUser = await usersCollection.findOne({
@@ -76,6 +103,15 @@ async function run() {
       const role = req.authUser?.role;
       const isAdmin = role === "admin" || role === "superadmin";
       if (!isAdmin) {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+      next();
+    };
+
+    const verifyModaretor = async (req, res, next) => {
+      const role = req.authUser?.role;
+      const isMod = role === "modaretor" || role === "admin" || role === "superadmin";
+      if (!isMod) {
         return res.status(403).send({ message: "forbidden access" });
       }
       next();
@@ -449,52 +485,137 @@ async function run() {
       }
     });
 
-    app.post("/addReviews", async (req, res) => {
-      const review = req.body;
+    app.post("/addReviews", verifyToken, loadAuthUser, async (req, res) => {
       try {
-        const result = await reviewsCollection.insertOne(review);
-        res
-          .status(201)
-          .json({ message: "Review added successfully", data: result });
+        const { comment, rating, scholarShip_id, reviewer_postDate } = req.body;
+        const email = req.decoded.email;
+        // validation
+        const sid = String(scholarShip_id || "").trim();
+        if (!sid) return res.status(400).json({ message: "scholarShip_id is required" });
+        let scholarship;
+        try {
+          scholarship = await scholershipCollection.findOne({ _id: new ObjectId(sid) });
+        } catch {
+          return res.status(400).json({ message: "Invalid scholarship id" });
+        }
+        if (!scholarship) return res.status(404).json({ message: "Scholarship not found" });
+
+        const numRating = Number(rating);
+        if (!Number.isFinite(numRating) || numRating < 1 || numRating > 5) {
+          return res.status(400).json({ message: "rating must be 1-5" });
+        }
+        const cleanComment = String(comment || "").trim();
+        if (cleanComment.length < 5 || cleanComment.length > 500) {
+          return res.status(400).json({ message: "comment must be 5-500 characters" });
+        }
+        // verified-applicant gate: must have accepted application for this scholarship
+        const acceptedApply = await applyCollection.findOne({
+          email: email,
+          scholarship_id: sid,
+          applicationStatus: "accepted",
+        });
+        if (!acceptedApply) {
+          return res.status(403).json({ message: "You can only review after your application is accepted by moderator" });
+        }
+        // 1 per (user, scholarship)
+        const existing = await reviewsCollection.findOne({ reviewer_email: email, scholarShip_id: sid });
+        if (existing) {
+          return res.status(409).json({ message: "You have already reviewed this scholarship. You can edit your existing review." });
+        }
+        const now = new Date();
+        const doc = {
+          comment: cleanComment,
+          rating: numRating,
+          scholarShip_id: sid,
+          reviewer_email: email,
+          reviewer_name: req.authUser?.name || req.authUser?.displayName || email,
+          reviewer_photo: req.authUser?.photoURL || req.body.reviewer_photo || null,
+          reviewer_postDate: reviewer_postDate || now.toISOString().slice(0, 10),
+          status: "pending",
+          isVerified: true,
+          appliedApplicationId: acceptedApply._id,
+          createdAt: now,
+          updatedAt: now,
+          moderatedBy: null,
+          moderatedAt: null,
+          moderationReason: null,
+          isEdited: false,
+        };
+        const result = await reviewsCollection.insertOne(doc);
+        res.status(201).json({ message: "Review submitted and pending moderation", data: result });
       } catch (error) {
+        if (error.code === 11000) {
+          return res.status(409).json({ message: "You have already reviewed this scholarship" });
+        }
         res.status(500).json({ error: error.message });
       }
     });
 
-    app.get("/allReviews", verifyToken, async (req, res) => {
-      const userEmail = req.query.email;
-      let query = {};
-
-      if (userEmail) {
-        query = {
-          reviewer_email: userEmail,
-        };
-      }
-
+    app.get("/allReviews", verifyToken, loadAuthUser, async (req, res) => {
       try {
-        const reviewResult = await reviewsCollection.find(query).toArray();
+        const { email: queryEmail, status, scholarShip_id, q, page = "1", limit = "50" } = req.query;
+        const role = req.authUser?.role;
+        const isStaff = role === "admin" || role === "superadmin" || role === "modaretor";
+        let query = {};
 
-        const reviewId = reviewResult.map(
-          (item) => new ObjectId(item.scholarShip_id)
-        );
+        // email filter: user can only query own, staff can query any
+        if (queryEmail) {
+          if (queryEmail !== req.decoded.email && !isStaff) {
+            return res.status(403).json({ message: "forbidden: can only view own reviews" });
+          }
+          query.reviewer_email = queryEmail;
+        } else if (!isStaff) {
+          // non-staff without email filter -> own only
+          query.reviewer_email = req.decoded.email;
+        }
+        // status filter: non-staff can only see approved (unless own)
+        if (status) {
+          const allowed = ["pending", "approved", "rejected", "hidden"];
+          if (!allowed.includes(String(status))) return res.status(400).json({ message: "invalid status" });
+          if (!isStaff && String(status) !== "approved" && queryEmail !== req.decoded.email) {
+            // non-staff cannot list pending/rejected of others
+            query.status = "approved";
+          } else {
+            query.status = String(status);
+          }
+        } else if (!isStaff && !queryEmail) {
+          // default for non-staff self list: all own statuses
+        } else if (!isStaff) {
+          // public-like: only approved when browsing others (handled via :id route)
+        }
 
-        const reviewDetails = await scholershipCollection
-          .find({
-            _id: { $in: reviewId },
-          })
-          .toArray();
+        if (scholarShip_id) query.scholarShip_id = String(scholarShip_id);
+        if (q) query.comment = { $regex: String(q).slice(0, 100), $options: "i" };
 
-        const combineResult = reviewResult.map((reviewItem) => {
-          const reviewDetail = reviewDetails.find(
-            (review) => review._id.toString() === reviewItem.scholarShip_id
-          );
-          return { ...reviewItem, scholership_details: reviewDetail || null };
-        });
+        // pagination
+        const pg = Math.max(1, parseInt(String(page), 10) || 1);
+        const lim = Math.min(100, Math.max(1, parseInt(String(limit), 10) || 50));
+        const skip = (pg - 1) * lim;
 
-        res.status(200).json({
-          message: "All review get successfully",
-          data: combineResult,
-        });
+        const reviewResult = await reviewsCollection.find(query).sort({ createdAt: -1 }).skip(skip).limit(lim).toArray();
+
+        // safe join: skip invalid ObjectIds
+        const validIds = [];
+        const idMap = new Map();
+        for (const item of reviewResult) {
+          try {
+            const oid = new ObjectId(item.scholarShip_id);
+            validIds.push(oid);
+            idMap.set(item.scholarShip_id, oid);
+          } catch {
+            // invalid id, skip join
+          }
+        }
+        const reviewDetails = validIds.length
+          ? await scholershipCollection.find({ _id: { $in: validIds } }).toArray()
+          : [];
+        const detailById = new Map(reviewDetails.map((d) => [String(d._id), d]));
+        const combineResult = reviewResult.map((reviewItem) => ({
+          ...reviewItem,
+          scholership_details: detailById.get(String(reviewItem.scholarShip_id)) || null,
+        }));
+
+        res.status(200).json({ message: "All review get successfully", data: combineResult });
       } catch (error) {
         res.status(500).json({ error: error.message });
       }
@@ -502,53 +623,135 @@ async function run() {
 
     app.get("/allReviews/:id", async (req, res) => {
       const id = req.params.id;
-
-      let query = {};
-
-      if (id) {
-        query = { scholarShip_id: id };
-      }
-
+      // public: only approved reviews
+      const query = { scholarShip_id: String(id), status: "approved" };
       try {
-        const reviewResult = await reviewsCollection.find(query).toArray();
-
-        const reviewId = reviewResult.map(
-          (item) => new ObjectId(item.scholarShip_id)
-        );
-
-        const reviewDetails = await scholershipCollection
-          .find({
-            _id: { $in: reviewId },
-          })
-          .toArray();
-
-        const combineResult = reviewResult.map((reviewItem) => {
-          const reviewDetail = reviewDetails.find(
-            (review) => review._id.toString() === reviewItem.scholarShip_id
-          );
-          return { ...reviewItem, scholership_details: reviewDetail || null };
-        });
-
-        res.status(200).json({
-          message: "All review get successfully",
-          data: combineResult,
-        });
+        const reviewResult = await reviewsCollection.find(query).sort({ createdAt: -1 }).toArray();
+        const validIds = [];
+        for (const item of reviewResult) {
+          try {
+            validIds.push(new ObjectId(item.scholarShip_id));
+          } catch {}
+        }
+        const reviewDetails = validIds.length ? await scholershipCollection.find({ _id: { $in: validIds } }).toArray() : [];
+        const detailById = new Map(reviewDetails.map((d) => [String(d._id), d]));
+        const combineResult = reviewResult.map((reviewItem) => ({
+          ...reviewItem,
+          scholership_details: detailById.get(String(reviewItem.scholarShip_id)) || null,
+        }));
+        res.status(200).json({ message: "All review get successfully", data: combineResult });
       } catch (error) {
         res.status(500).json({ error: error.message });
       }
     });
 
-    app.delete("/allReviews/:id", async (req, res) => {
+    app.delete("/allReviews/:id", verifyToken, loadAuthUser, async (req, res) => {
       const id = req.params.id;
-      const query = { _id: new ObjectId(id) };
-
+      let oid;
       try {
-        const result = await reviewsCollection.deleteOne(query);
+        oid = new ObjectId(id);
+      } catch {
+        return res.status(400).json({ message: "Invalid review id" });
+      }
+      try {
+        const review = await reviewsCollection.findOne({ _id: oid });
+        if (!review) return res.status(404).json({ message: "Review not found" });
+        const role = req.authUser?.role;
+        const isStaff = role === "admin" || role === "superadmin" || role === "modaretor";
+        const isOwner = review.reviewer_email === req.decoded.email;
+        if (!isOwner && !isStaff) return res.status(403).json({ message: "forbidden: not owner nor moderator" });
+        const result = await reviewsCollection.deleteOne({ _id: oid });
+        await recalcScholarshipRating(review.scholarShip_id);
+        res.status(200).json({ message: "review deleted successfully", data: result });
+      } catch (error) {
+        res.status(500).json({ error: error.message });
+      }
+    });
 
-        res.status(201).json({
-          message: "review deleted successfully",
-          data: result,
-        });
+    // owner edit: comment/rating only, re-sets to pending
+    app.patch("/allReviews/:id", verifyToken, loadAuthUser, async (req, res) => {
+      const id = req.params.id;
+      let oid;
+      try {
+        oid = new ObjectId(id);
+      } catch {
+        return res.status(400).json({ message: "Invalid review id" });
+      }
+      const { comment, rating } = req.body;
+      try {
+        const review = await reviewsCollection.findOne({ _id: oid });
+        if (!review) return res.status(404).json({ message: "Review not found" });
+        const role = req.authUser?.role;
+        const isStaff = role === "admin" || role === "superadmin" || role === "modaretor";
+        const isOwner = review.reviewer_email === req.decoded.email;
+        if (!isOwner && !isStaff) return res.status(403).json({ message: "forbidden" });
+
+        const updates = {};
+        if (comment !== undefined) {
+          const clean = String(comment).trim();
+          if (clean.length < 5 || clean.length > 500) return res.status(400).json({ message: "comment 5-500 chars" });
+          updates.comment = clean;
+        }
+        if (rating !== undefined) {
+          const nr = Number(rating);
+          if (!Number.isFinite(nr) || nr < 1 || nr > 5) return res.status(400).json({ message: "rating 1-5" });
+          updates.rating = nr;
+        }
+        if (Object.keys(updates).length === 0) return res.status(400).json({ message: "nothing to update" });
+        updates.updatedAt = new Date();
+        updates.isEdited = true;
+        // re-moderation if owner edits
+        if (isOwner) {
+          updates.status = "pending";
+          updates.moderatedBy = null;
+          updates.moderatedAt = null;
+        }
+        const result = await reviewsCollection.updateOne({ _id: oid }, { $set: updates });
+        await recalcScholarshipRating(review.scholarShip_id);
+        res.status(200).json({ message: "review updated", data: result });
+      } catch (error) {
+        res.status(500).json({ error: error.message });
+      }
+    });
+
+    // moderation queue: approve/reject/hidden
+    app.patch("/allReviews/:id/moderate", verifyToken, loadAuthUser, verifyModaretor, async (req, res) => {
+      const id = req.params.id;
+      let oid;
+      try {
+        oid = new ObjectId(id);
+      } catch {
+        return res.status(400).json({ message: "Invalid review id" });
+      }
+      const { status, reason } = req.body;
+      const allowed = ["approved", "rejected", "hidden", "pending"];
+      if (!allowed.includes(String(status))) return res.status(400).json({ message: "status must be approved|rejected|hidden|pending" });
+      try {
+        const review = await reviewsCollection.findOne({ _id: oid });
+        if (!review) return res.status(404).json({ message: "Review not found" });
+        const update = {
+          status: String(status),
+          moderatedBy: req.decoded.email,
+          moderatedAt: new Date(),
+          moderationReason: reason ? String(reason).slice(0, 300) : null,
+          updatedAt: new Date(),
+        };
+        const result = await reviewsCollection.updateOne({ _id: oid }, { $set: update });
+        await recalcScholarshipRating(review.scholarShip_id);
+        res.status(200).json({ message: "review moderated", data: result });
+      } catch (error) {
+        res.status(500).json({ error: error.message });
+      }
+    });
+
+    // review stats for admin/mod dashboard
+    app.get("/reviews/stats", verifyToken, loadAuthUser, verifyModaretor, async (req, res) => {
+      try {
+        const total = await reviewsCollection.countDocuments();
+        const pending = await reviewsCollection.countDocuments({ status: "pending" });
+        const approved = await reviewsCollection.countDocuments({ status: "approved" });
+        const rejected = await reviewsCollection.countDocuments({ status: "rejected" });
+        res.json({ total, pending, approved, rejected });
       } catch (error) {
         res.status(500).json({ error: error.message });
       }

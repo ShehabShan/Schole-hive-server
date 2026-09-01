@@ -25,6 +25,18 @@ Deploy procedure and credentials live in `docs/DEPLOY.md` / `docs/CREDENTIALS.md
 - [x] Root status route.
 - [x] CORS for `localhost:5173`, `scholarhive-913e4.web.app`, `scholarhive-913e4.firebaseapp.com` with credentials.
 
+### Review System — Proper Moderation (2026-09-01)
+- [x] `verifyModaretor` middleware (modaretor|admin|superadmin) alongside `verifyAdmin`
+- [x] Review indexes: unique `(reviewer_email, scholarShip_id)` + `(scholarShip_id, status)` + `(status, createdAt)`
+- [x] `recalcScholarshipRating` — avg of approved → `scholership.rating` + `reviewsCount`
+- [x] `POST /addReviews` — secured (`verifyToken+loadAuthUser`), validates rating/comment, gates `apply.applicationStatus==="accepted"` (verified applicant), dup 409, `status="pending"`, `isVerified=true`, `createdAt`
+- [x] `GET /allReviews` — `verifyToken+loadAuthUser`, enforces `email===decoded` unless staff, `status/q/scholarShip_id/page/limit`, safe ObjectId join, sorted
+- [x] `GET /allReviews/:id` — public now returns `status="approved"` only
+- [x] `DELETE /allReviews/:id` — secured (owner OR staff) + recalc
+- [x] `PATCH /allReviews/:id` — owner/staff edit `comment/rating` → `isEdited` + re-pending
+- [x] `PATCH /allReviews/:id/moderate` — staff only `approved|rejected|hidden|pending` + `moderatedBy/At`
+- [x] `GET /reviews/stats` — staff only counts
+
 ---
 
 ## IN PROGRESS
