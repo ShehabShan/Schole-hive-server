@@ -62,6 +62,7 @@ async function run() {
     const applyCollection = database.collection("apply");
     const savedCollection = database.collection("saved");
     const inquiriesCollection = database.collection("inquiries");
+    const reviewHistoryCollection = database.collection("review_history");
 
     // review indexes: 1 per (user, scholarship) + filter by scholarship+status
     try {
@@ -85,6 +86,8 @@ async function run() {
       await savedCollection.createIndex({ userEmail: 1, savedAt: -1 }, { background: true });
       await inquiriesCollection.createIndex({ scholarshipId: 1, createdAt: -1 }, { background: true });
       await inquiriesCollection.createIndex({ email: 1 }, { background: true });
+      await reviewHistoryCollection.createIndex({ reviewId: 1, at: -1 }, { background: true });
+      await reviewHistoryCollection.createIndex({ scholarshipId: 1 }, { background: true });
     } catch (e) {
       console.log("scholarship/saved index warning", e.message);
     }
@@ -154,6 +157,8 @@ async function run() {
       }
       next();
     };
+
+    const REVIEW_AUTO_APPROVE = process.env.REVIEW_AUTO_APPROVE !== "false";
 
     app.post("/jwt", async (req, res) => {
       const user = req.body;
@@ -332,6 +337,32 @@ async function run() {
         res.status(200).json({ message: "user fetched successfully", data: result });
       } catch (error) {
         res.status(500).json({ error: error.message });
+      }
+    });
+
+    // public profile: GET /users/public/:email — safe fields only, no auth
+    app.get("/users/public/:email", async (req, res) => {
+      const email = String(req.params.email || "").toLowerCase().trim();
+      if (!email || !email.includes("@")) return res.status(400).json({ message: "valid email required" });
+      try {
+        const u = await usersCollection.findOne({ email });
+        if (!u) return res.status(404).json({ message: "user not found" });
+        const pub = {
+          _id: u._id,
+          name: u.name,
+          email: u.email,
+          photoURL: u.photoURL,
+          coverPhoto: u.coverPhoto,
+          city: u.city,
+          country: u.country,
+          bio: u.bio,
+          skills: u.skills,
+          role: u.role,
+          createdAt: u.createdAt,
+        };
+        res.json({ message: "public profile", data: pub });
+      } catch (e) {
+        res.status(500).json({ error: e.message });
       }
     });
 
@@ -836,26 +867,30 @@ async function run() {
           return res.status(409).json({ message: "You have already reviewed this scholarship. You can edit your existing review." });
         }
         const now = new Date();
+        const autoApproved = REVIEW_AUTO_APPROVE;
         const doc = {
           comment: cleanComment,
           rating: numRating,
           scholarShip_id: sid,
           reviewer_email: email,
+          reviewer_id: req.authUser?._id || null,
           reviewer_name: req.authUser?.name || req.authUser?.displayName || email,
           reviewer_photo: req.authUser?.photoURL || req.body.reviewer_photo || null,
           reviewer_postDate: reviewer_postDate || now.toISOString().slice(0, 10),
-          status: "pending",
+          status: autoApproved ? "approved" : "pending",
           isVerified: true,
           appliedApplicationId: acceptedApply._id,
           createdAt: now,
           updatedAt: now,
-          moderatedBy: null,
-          moderatedAt: null,
+          moderatedBy: autoApproved ? "system:auto-approve" : null,
+          moderatedAt: autoApproved ? now : null,
           moderationReason: null,
           isEdited: false,
+          history: [],
         };
         const result = await reviewsCollection.insertOne(doc);
-        res.status(201).json({ message: "Review submitted and pending moderation", data: result });
+        if (autoApproved) await recalcScholarshipRating(sid);
+        res.status(201).json({ message: autoApproved ? "Review submitted and approved" : "Review submitted and pending moderation", data: result });
       } catch (error) {
         if (error.code === 11000) {
           return res.status(409).json({ message: "You have already reviewed this scholarship" });
@@ -883,7 +918,7 @@ async function run() {
         }
         // status filter: non-staff can only see approved (unless own)
         if (status) {
-          const allowed = ["pending", "approved", "rejected", "hidden"];
+          const allowed = ["pending", "approved", "rejected", "hidden", "removed"];
           if (!allowed.includes(String(status))) return res.status(400).json({ message: "invalid status" });
           if (!isStaff && String(status) !== "approved" && queryEmail !== req.decoded.email) {
             // non-staff cannot list pending/rejected of others
@@ -966,6 +1001,7 @@ async function run() {
       } catch {
         return res.status(400).json({ message: "Invalid review id" });
       }
+      const { reason, note, hard } = req.body || {};
       try {
         const review = await reviewsCollection.findOne({ _id: oid });
         if (!review) return res.status(404).json({ message: "Review not found" });
@@ -973,9 +1009,34 @@ async function run() {
         const isStaff = role === "admin" || role === "superadmin" || role === "modaretor";
         const isOwner = review.reviewer_email === req.decoded.email;
         if (!isOwner && !isStaff) return res.status(403).json({ message: "forbidden: not owner nor moderator" });
-        const result = await reviewsCollection.deleteOne({ _id: oid });
+        // hard delete only for superadmin via ?hard=true
+        if (hard === true || hard === "true") {
+          if (role !== "superadmin") return res.status(403).json({ message: "hard delete superadmin only" });
+          const result = await reviewsCollection.deleteOne({ _id: oid });
+          await recalcScholarshipRating(review.scholarShip_id);
+          return res.status(200).json({ message: "review hard deleted", data: result });
+        }
+        // soft remove with history
+        const now = new Date();
+        const removedReason = String(reason || "No reason").slice(0, 300);
+        const removedNote = note ? String(note).slice(0, 800) : null;
+        const prevStatus = review.status;
+        await reviewHistoryCollection.insertOne({
+          reviewId: String(review._id),
+          scholarshipId: review.scholarShip_id,
+          action: "removed",
+          from: prevStatus,
+          to: "removed",
+          by: req.decoded.email,
+          byRole: role,
+          at: now,
+          reason: removedReason,
+          note: removedNote,
+          snapshot: { rating: review.rating, comment: review.comment, reviewer_email: review.reviewer_email },
+        });
+        const result = await reviewsCollection.updateOne({ _id: oid }, { $set: { status: "removed", removedBy: req.decoded.email, removedAt: now, removedReason, removedNote, previousStatus: prevStatus, updatedAt: now, history: [...(review.history || []), { action: "removed", from: prevStatus, to: "removed", by: req.decoded.email, at: now, reason: removedReason }] } });
         await recalcScholarshipRating(review.scholarShip_id);
-        res.status(200).json({ message: "review deleted successfully", data: result });
+        res.status(200).json({ message: "review removed (soft) with history", data: result });
       } catch (error) {
         res.status(500).json({ error: error.message });
       }
@@ -1036,24 +1097,72 @@ async function run() {
       } catch {
         return res.status(400).json({ message: "Invalid review id" });
       }
-      const { status, reason } = req.body;
-      const allowed = ["approved", "rejected", "hidden", "pending"];
-      if (!allowed.includes(String(status))) return res.status(400).json({ message: "status must be approved|rejected|hidden|pending" });
+      const { status, reason, note } = req.body;
+      const allowed = ["approved", "rejected", "hidden", "pending", "removed"];
+      if (!allowed.includes(String(status))) return res.status(400).json({ message: "status must be approved|rejected|hidden|pending|removed" });
       try {
         const review = await reviewsCollection.findOne({ _id: oid });
         if (!review) return res.status(404).json({ message: "Review not found" });
+        const now = new Date();
+        const prevStatus = review.status;
         const update = {
           status: String(status),
           moderatedBy: req.decoded.email,
-          moderatedAt: new Date(),
+          moderatedAt: now,
           moderationReason: reason ? String(reason).slice(0, 300) : null,
-          updatedAt: new Date(),
+          removedReason: String(status) === "removed" ? (reason ? String(reason).slice(0, 300) : "No reason") : null,
+          removedNote: note ? String(note).slice(0, 800) : null,
+          updatedAt: now,
         };
-        const result = await reviewsCollection.updateOne({ _id: oid }, { $set: update });
+        if (String(status) === "removed") {
+          update.removedBy = req.decoded.email;
+          update.removedAt = now;
+          update.previousStatus = prevStatus;
+        }
+        // history log
+        await reviewHistoryCollection.insertOne({
+          reviewId: String(review._id),
+          scholarshipId: review.scholarShip_id,
+          action: String(status),
+          from: prevStatus,
+          to: String(status),
+          by: req.decoded.email,
+          byRole: req.authUser?.role,
+          at: now,
+          reason: reason ? String(reason).slice(0, 300) : null,
+          note: note ? String(note).slice(0, 800) : null,
+          snapshot: { rating: review.rating, comment: review.comment },
+        });
+        const result = await reviewsCollection.updateOne(
+          { _id: oid },
+          {
+            $set: update,
+            $push: { history: { action: String(status), from: prevStatus, to: String(status), by: req.decoded.email, at: now, reason: reason || null } },
+          }
+        );
         await recalcScholarshipRating(review.scholarShip_id);
         res.status(200).json({ message: "review moderated", data: result });
       } catch (error) {
         res.status(500).json({ error: error.message });
+      }
+    });
+
+    // review history + removed list
+    app.get("/reviews/history/:id", verifyToken, loadAuthUser, verifyModaretor, async (req, res) => {
+      try {
+        const id = String(req.params.id);
+        const data = await reviewHistoryCollection.find({ reviewId: id }).sort({ at: -1 }).toArray();
+        res.json({ data });
+      } catch (e) {
+        res.status(500).json({ error: e.message });
+      }
+    });
+    app.get("/reviews/removed", verifyToken, loadAuthUser, verifyModaretor, async (req, res) => {
+      try {
+        const data = await reviewsCollection.find({ status: "removed" }).sort({ removedAt: -1 }).limit(100).toArray();
+        res.json({ data });
+      } catch (e) {
+        res.status(500).json({ error: e.message });
       }
     });
 
@@ -1064,7 +1173,9 @@ async function run() {
         const pending = await reviewsCollection.countDocuments({ status: "pending" });
         const approved = await reviewsCollection.countDocuments({ status: "approved" });
         const rejected = await reviewsCollection.countDocuments({ status: "rejected" });
-        res.json({ total, pending, approved, rejected });
+        const hidden = await reviewsCollection.countDocuments({ status: "hidden" });
+        const removed = await reviewsCollection.countDocuments({ status: "removed" });
+        res.json({ total, pending, approved, rejected, hidden, removed });
       } catch (error) {
         res.status(500).json({ error: error.message });
       }
