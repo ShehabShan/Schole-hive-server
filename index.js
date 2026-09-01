@@ -60,6 +60,7 @@ async function run() {
     const reviewsCollection = database.collection("reviews");
     const usersCollection = database.collection("users");
     const applyCollection = database.collection("apply");
+    const savedCollection = database.collection("saved");
 
     // review indexes: 1 per (user, scholarship) + filter by scholarship+status
     try {
@@ -67,8 +68,22 @@ async function run() {
       await reviewsCollection.createIndex({ scholarShip_id: 1, status: 1 }, { background: true });
       await reviewsCollection.createIndex({ status: 1, createdAt: -1 }, { background: true });
     } catch (e) {
-      // index creation may fail if dup data exists - log but don't crash
       console.log("index creation warning", e.message);
+    }
+    try {
+      await scholershipCollection.createIndex({ country: 1, scholarshipCategory: 1, degree: 1 }, { background: true });
+      await scholershipCollection.createIndex({ subjectName: 1 }, { background: true });
+      await scholershipCollection.createIndex({ applicationDeadline: 1 }, { background: true });
+      await scholershipCollection.createIndex({ rating: -1 }, { background: true });
+      await scholershipCollection.createIndex({ applicationFees: 1 }, { background: true });
+      await scholershipCollection.createIndex(
+        { universityName: "text", scholarshipDescription: "text", subjectName: "text", scholarshipCategory: "text" },
+        { background: true, name: "scholarship_text_idx" }
+      );
+      await savedCollection.createIndex({ userEmail: 1, scholarshipId: 1 }, { unique: true, background: true });
+      await savedCollection.createIndex({ userEmail: 1, savedAt: -1 }, { background: true });
+    } catch (e) {
+      console.log("scholarship/saved index warning", e.message);
     }
 
     const recalcScholarshipRating = async (scholarShip_id) => {
@@ -482,86 +497,243 @@ async function run() {
       }
     });
 
-    // scholership collection
+    // scholership collection — faceted, paginated, secured, saved + stats
 
-    app.post("/allScholership", async (req, res) => {
-      const scholership = req.body;
-
-      try {
-        const result = await scholershipCollection.insertOne(scholership);
-        res
-          .status(201)
-          .json({ message: "Scholarship added successfully", data: result });
-      } catch (error) {
-        res.status(500).json({ error: error.message });
+    // helpers
+    const buildScholarshipFilter = (q) => {
+      const filter = {};
+      const rawQ = String(q.q || q.search || "").trim();
+      if (rawQ) {
+        // use regex OR across key text fields (fallback if text index not ready)
+        const rx = { $regex: rawQ.slice(0, 100).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), $options: "i" };
+        filter.$or = [
+          { universityName: rx },
+          { scholarshipCategory: rx },
+          { subjectName: rx },
+          { scholarshipDescription: rx },
+          { country: rx },
+          { city: rx },
+          { degree: rx },
+        ];
       }
-    });
+      const cat = String(q.category || q.scholarshipCategory || "").trim();
+      if (cat) filter.scholarshipCategory = cat;
+      const subject = String(q.subject || q.subjectName || "").trim();
+      if (subject) filter.subjectName = subject;
+      const degree = String(q.degree || "").trim();
+      if (degree) filter.degree = degree;
+      const country = String(q.country || "").trim();
+      if (country) filter.country = { $regex: `^${country.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, $options: "i" };
+      const city = String(q.city || "").trim();
+      if (city) filter.city = { $regex: `^${city.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, $options: "i" };
+      const maxFees = q.maxFees !== undefined && q.maxFees !== "" ? Number(q.maxFees) : NaN;
+      if (Number.isFinite(maxFees)) filter.applicationFees = { $lte: maxFees };
+      const deadlineAfter = String(q.deadlineAfter || "").trim();
+      if (deadlineAfter) filter.applicationDeadline = { $gte: deadlineAfter };
+      // allow legacy ?country=UK etc. already handled; also support tags filter
+      const tag = String(q.tag || "").trim();
+      if (tag) filter.tags = tag;
+      return filter;
+    };
 
-    app.get("/allScholership", async (req, res) => {
+    const buildScholarshipSort = (sort) => {
+      const s = String(sort || "newest").toLowerCase();
+      if (s === "rating" || s === "recommended") return { rating: -1, reviewsCount: -1 };
+      if (s === "deadline" || s === "deadline-asc") return { applicationDeadline: 1 };
+      if (s === "fees-asc" || s === "fees" || s === "price-asc") return { applicationFees: 1 };
+      if (s === "fees-desc" || s === "price-desc") return { applicationFees: -1 };
+      if (s === "newest") return { postDate: -1, _id: -1 };
+      if (s === "oldest") return { postDate: 1 };
+      return { postDate: -1, _id: -1 };
+    };
+
+    const handleListScholarships = async (req, res) => {
       try {
-        const result = await scholershipCollection.find().toArray();
-        res.status(200).json({
-          message: "allScholarship fetcing successfull",
-          data: result,
-        });
-      } catch (error) {
-        res.status(500).json({ error: error.message });
-      }
-    });
-
-    app.get("/allScholership/:id", async (req, res) => {
-      const id = req.params.id;
-      const query = { _id: new ObjectId(id) };
-      try {
-        const result = await scholershipCollection.findOne(query);
-        res.status(200).json({
-          message: "allScholarship fetcing successfull",
-          data: result,
-        });
-      } catch (error) {
-        res.status(500).json({ error: error.message });
-      }
-    });
-
-    app.delete("/allScholership/:id", async (req, res) => {
-      const id = req.params.id;
-      const query = { _id: new ObjectId(id) };
-      try {
-        const result = await scholershipCollection.deleteOne(query);
-        res.status(201).json({
-          message: "Scholership delete successfully",
-          data: result,
-        });
-      } catch (error) {
-        res.status(500).json({ error: error.message });
-      }
-    });
-
-    app.patch("/allScholership/:id", async (req, res) => {
-      const id = req.params.id;
-      const updateScholership = req.body;
-      const query = { _id: new ObjectId(id) };
-
-      try {
-        const update = {
-          $set: updateScholership,
-        };
-
-        const result = await scholershipCollection.updateOne(query, update);
-
-        if (result.modifiedCount > 0) {
-          res.status(200).json({
-            message: "Scholership updated successfully",
-            data: result,
-          });
-        } else {
-          res
-            .status(404)
-            .json({ message: "Scholership not found or no changes made" });
+        const hasPaging = req.query.page !== undefined || req.query.limit !== undefined;
+        // filter + sort
+        const filter = buildScholarshipFilter(req.query);
+        const sort = buildScholarshipSort(req.query.sort);
+        const total = await scholershipCollection.countDocuments(filter);
+        if (!hasPaging) {
+          // backward compat: return all (old clients expect full array)
+          const data = await scholershipCollection.find(filter).sort(sort).toArray();
+          return res.status(200).json({ message: "allScholarship fetching successfull", data, total, page: 1, totalPages: 1 });
         }
+        const page = Math.max(1, parseInt(String(req.query.page || "1"), 10) || 1);
+        const limit = Math.min(50, Math.max(1, parseInt(String(req.query.limit || "12"), 10) || 12));
+        const skip = (page - 1) * limit;
+        const data = await scholershipCollection.find(filter).sort(sort).skip(skip).limit(limit).toArray();
+        const totalPages = Math.max(1, Math.ceil(total / limit));
+        res.status(200).json({ message: "allScholarship fetching successfull", data, total, page, totalPages });
       } catch (error) {
         res.status(500).json({ error: error.message });
       }
+    };
+
+    const handleGetScholarshipById = async (req, res) => {
+      const id = req.params.id;
+      if (id === "stats") return handleScholarshipStats(req, res);
+      try {
+        const result = await scholershipCollection.findOne({ _id: new ObjectId(id) });
+        res.status(200).json({ message: "allScholarship fetching successfull", data: result });
+      } catch (error) {
+        res.status(500).json({ error: error.message });
+      }
+    };
+
+    const handleCreateScholarship = async (req, res) => {
+      const doc = req.body;
+      // normalize new optional fields with defaults
+      if (!Array.isArray(doc.eligibility)) doc.eligibility = doc.eligibility ? [String(doc.eligibility)] : [];
+      if (!Array.isArray(doc.benefits)) doc.benefits = doc.benefits ? [String(doc.benefits)] : [];
+      if (!Array.isArray(doc.tags)) doc.tags = doc.tags ? [String(doc.tags)] : [];
+      if (!doc.currency) doc.currency = "USD";
+      if (!doc.duration) doc.duration = doc.duration || null;
+      if (doc.applicationFees !== undefined) doc.applicationFees = Number(doc.applicationFees);
+      if (doc.serviceCharge !== undefined) doc.serviceCharge = Number(doc.serviceCharge);
+      if (doc.stipend !== undefined && doc.stipend !== "") doc.stipend = Number(doc.stipend);
+      if (doc.rating === undefined) doc.rating = 0;
+      if (doc.reviewsCount === undefined) doc.reviewsCount = 0;
+      if (!doc.postDate) doc.postDate = new Date().toISOString().slice(0, 10);
+      try {
+        const result = await scholershipCollection.insertOne(doc);
+        res.status(201).json({ message: "Scholarship added successfully", data: result });
+      } catch (error) {
+        res.status(500).json({ error: error.message });
+      }
+    };
+
+    const handleDeleteScholarship = async (req, res) => {
+      try {
+        const result = await scholershipCollection.deleteOne({ _id: new ObjectId(req.params.id) });
+        res.status(200).json({ message: "Scholarship delete successfully", data: result });
+      } catch (error) {
+        res.status(500).json({ error: error.message });
+      }
+    };
+
+    const handlePatchScholarship = async (req, res) => {
+      const id = req.params.id;
+      const body = { ...req.body };
+      delete body._id;
+      delete body.subjectName2;
+      if (body.applicationFees !== undefined) body.applicationFees = Number(body.applicationFees);
+      if (body.serviceCharge !== undefined) body.serviceCharge = Number(body.serviceCharge);
+      if (body.stipend !== undefined && body.stipend !== "") body.stipend = Number(body.stipend);
+      if (Array.isArray(body.eligibility)) body.eligibility = body.eligibility.map((s) => String(s).trim()).filter(Boolean).slice(0, 20);
+      if (Array.isArray(body.benefits)) body.benefits = body.benefits.map((s) => String(s).trim()).filter(Boolean).slice(0, 20);
+      if (Array.isArray(body.tags)) body.tags = body.tags.map((s) => String(s).trim()).filter(Boolean).slice(0, 20);
+      try {
+        const result = await scholershipCollection.updateOne({ _id: new ObjectId(id) }, { $set: body });
+        if (result.matchedCount === 0) return res.status(404).json({ message: "Scholarship not found" });
+        res.status(200).json({ message: "Scholarship updated successfully", data: result });
+      } catch (error) {
+        res.status(500).json({ error: error.message });
+      }
+    };
+
+    const handleScholarshipStats = async (req, res) => {
+      try {
+        const totalScholarships = await scholershipCollection.countDocuments();
+        const totalReviews = await reviewsCollection.countDocuments();
+        const pendingReviews = await reviewsCollection.countDocuments({ status: "pending" });
+        const totalApplications = await applyCollection.countDocuments();
+        const agg = await scholershipCollection.aggregate([{ $group: { _id: null, totalStipend: { $sum: { $toDouble: { $ifNull: ["$stipend", 0] } } }, avgFees: { $avg: { $toDouble: { $ifNull: ["$applicationFees", 0] } } } } }]).toArray();
+        const totalStipend = agg[0]?.totalStipend || 0;
+        const avgFees = agg[0]?.avgFees || 0;
+        const byCategory = await scholershipCollection.aggregate([{ $group: { _id: "$scholarshipCategory", count: { $sum: 1 } } }]).toArray();
+        const byCountry = await scholershipCollection.aggregate([{ $group: { _id: "$country", count: { $sum: 1 } }, $sort: { count: -1 }, $limit: 6 }]).toArray();
+        res.json({ totalScholarships, totalReviews, pendingReviews, totalApplications, totalStipend, avgFees, byCategory, byCountry });
+      } catch (error) {
+        res.status(500).json({ error: error.message });
+      }
+    };
+
+    // list — primary + aliases, public (filtered/paginated)
+    app.get("/allScholership", handleListScholarships);
+    app.get("/allScholarships", handleListScholarships);
+    app.get("/scholarships", handleListScholarships);
+    app.get("/api/scholarships", handleListScholarships);
+
+    // stats — public (before :id)
+    app.get("/allScholership/stats", handleScholarshipStats);
+    app.get("/allScholarships/stats", handleScholarshipStats);
+    app.get("/scholarships/stats", handleScholarshipStats);
+
+    // single — public (must be after /stats)
+    app.get("/allScholership/:id", handleGetScholarshipById);
+    app.get("/allScholarships/:id", handleGetScholarshipById);
+    app.get("/scholarships/:id", handleGetScholarshipById);
+
+    // create / update / delete — secured (moderator+)
+    app.post("/allScholership", verifyToken, loadAuthUser, verifyModaretor, handleCreateScholarship);
+    app.post("/allScholarships", verifyToken, loadAuthUser, verifyModaretor, handleCreateScholarship);
+    app.post("/scholarships", verifyToken, loadAuthUser, verifyModaretor, handleCreateScholarship);
+
+    app.delete("/allScholership/:id", verifyToken, loadAuthUser, verifyModaretor, handleDeleteScholarship);
+    app.delete("/allScholarships/:id", verifyToken, loadAuthUser, verifyModaretor, handleDeleteScholarship);
+    app.delete("/scholarships/:id", verifyToken, loadAuthUser, verifyModaretor, handleDeleteScholarship);
+
+    app.patch("/allScholership/:id", verifyToken, loadAuthUser, verifyModaretor, handlePatchScholarship);
+    app.patch("/allScholarships/:id", verifyToken, loadAuthUser, verifyModaretor, handlePatchScholarship);
+    app.patch("/scholarships/:id", verifyToken, loadAuthUser, verifyModaretor, handlePatchScholarship);
+
+    // saved / wishlist — userEmail + scholarshipId unique
+    app.post("/saved", verifyToken, loadAuthUser, async (req, res) => {
+      const { scholarshipId, scholarship_id } = req.body;
+      const sid = String(scholarshipId || scholarship_id || "").trim();
+      if (!sid) return res.status(400).json({ message: "scholarshipId required" });
+      try {
+        new ObjectId(sid);
+      } catch {
+        return res.status(400).json({ message: "invalid scholarshipId" });
+      }
+      const exists = await scholershipCollection.findOne({ _id: new ObjectId(sid) });
+      if (!exists) return res.status(404).json({ message: "Scholarship not found" });
+      const userEmail = req.decoded.email;
+      const existing = await savedCollection.findOne({ userEmail, scholarshipId: sid });
+      if (existing) {
+        await savedCollection.deleteOne({ _id: existing._id });
+        return res.json({ saved: false, message: "Removed from saved" });
+      }
+      await savedCollection.insertOne({ userEmail, scholarshipId: sid, savedAt: new Date() });
+      res.status(201).json({ saved: true, message: "Saved" });
+    });
+
+    app.get("/saved", verifyToken, loadAuthUser, async (req, res) => {
+      const email = String(req.query.email || req.decoded.email).toLowerCase().trim();
+      const role = req.authUser?.role;
+      const isStaff = role === "admin" || role === "superadmin" || role === "modaretor";
+      if (email !== String(req.decoded.email).toLowerCase() && !isStaff) return res.status(403).json({ message: "forbidden" });
+      try {
+        const docs = await savedCollection.find({ userEmail: email }).sort({ savedAt: -1 }).toArray();
+        const ids = [];
+        for (const d of docs) { try { ids.push(new ObjectId(d.scholarshipId)); } catch {} }
+        const scholarships = ids.length ? await scholershipCollection.find({ _id: { $in: ids } }).toArray() : [];
+        const byId = new Map(scholarships.map((s) => [String(s._id), s]));
+        const data = docs.map((d) => ({ ...d, scholarship: byId.get(String(d.scholarshipId)) || null }));
+        res.json({ message: "saved fetched", data });
+      } catch (error) {
+        res.status(500).json({ error: error.message });
+      }
+    });
+
+    app.delete("/saved/:id", verifyToken, loadAuthUser, async (req, res) => {
+      const sid = String(req.params.id).trim();
+      const userEmail = req.decoded.email;
+      try {
+        const doc = await savedCollection.findOne({ userEmail, scholarshipId: sid });
+        if (!doc) return res.status(404).json({ message: "Not saved" });
+        await savedCollection.deleteOne({ _id: doc._id });
+        res.json({ message: "Removed from saved" });
+      } catch (error) {
+        res.status(500).json({ error: error.message });
+      }
+    });
+    app.get("/saved/check/:id", verifyToken, async (req, res) => {
+      const sid = String(req.params.id).trim();
+      const doc = await savedCollection.findOne({ userEmail: req.decoded.email, scholarshipId: sid });
+      res.json({ saved: !!doc });
     });
 
     app.post("/addReviews", verifyToken, loadAuthUser, async (req, res) => {

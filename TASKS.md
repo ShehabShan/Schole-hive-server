@@ -1,60 +1,30 @@
 # TASKS.md — Schole-hive-server (Express + MongoDB API)
 
 Live project status. Keep this file current every session:
-- START a unit -> **IN PROGRESS**. FINISH a unit -> **DONE**. New work -> **BACKLOG**.
+- START -> **IN PROGRESS**. FINISH -> **DONE** (archive to `docs/TASK_HISTORY.md` at milestone). New work -> **BACKLOG**.
 
-Detailed session narrative and decisions live in `docs/HANDOFF_LOG.md` (newest at top).
-Deploy procedure and credentials live in `docs/DEPLOY.md` / `docs/CREDENTIALS.md`.
-
----
-
-## DONE
-
-### Session-continuity system (mirror of client repo)
-- [x] `AGENTS.md`, `TASKS.md`, `docs/HANDOFF_LOG.md`, `docs/DEPLOY.md`, `docs/CREDENTIALS.md`.
-- [x] Standing working rules baked in: commit frequently, push after every commit, token-budget safety, keep continuity files current, no secrets in repo.
-
-### Core server (as found at setup)
-- [x] Express + MongoDB app, single `index.js`, database `schoolHive`.
-- [x] JWT auth: `POST /jwt`, `POST /clear-jwt`, `verifyToken` (Bearer header or cookie).
-- [x] Role model: `user`, `modaretor`, `admin`, `superadmin` (owner). Role-check endpoints for each role; superadmin role protected from modification.
-- [x] Users API: create user (`/users` POST), list (`/users` GET, verified), get by email (`/user?email=`). `ADMIN_EMAILS` env auto-promotes owners to `superadmin` on signup.
-- [x] Scholarships API: list/create, get-by-id, update, delete.
-- [x] Reviews API: add, list (all + by scholarship), delete.
-- [x] Applications API: apply (verified), my applications, all applications, single application, cancel (PATCH), accept/reject status (PATCH).
-- [x] Root status route.
-- [x] CORS for `localhost:5173`, `scholarhive-913e4.web.app`, `scholarhive-913e4.firebaseapp.com` with credentials.
-
-### Review System — Proper Moderation (2026-09-01)
-- [x] `verifyModaretor` middleware (modaretor|admin|superadmin) alongside `verifyAdmin`
-- [x] Review indexes: unique `(reviewer_email, scholarShip_id)` + `(scholarShip_id, status)` + `(status, createdAt)`
-- [x] `recalcScholarshipRating` — avg of approved → `scholership.rating` + `reviewsCount`
-- [x] `POST /addReviews` — secured (`verifyToken+loadAuthUser`), validates rating/comment, gates `apply.applicationStatus==="accepted"` (verified applicant), dup 409, `status="pending"`, `isVerified=true`, `createdAt`
-- [x] `GET /allReviews` — `verifyToken+loadAuthUser`, enforces `email===decoded` unless staff, `status/q/scholarShip_id/page/limit`, safe ObjectId join, sorted
-- [x] `GET /allReviews/:id` — public now returns `status="approved"` only
-- [x] `DELETE /allReviews/:id` — secured (owner OR staff) + recalc
-- [x] `PATCH /allReviews/:id` — owner/staff edit `comment/rating` → `isEdited` + re-pending
-- [x] `PATCH /allReviews/:id/moderate` — staff only `approved|rejected|hidden|pending` + `moderatedBy/At`
-- [x] `GET /reviews/stats` — staff only counts
-
-### User & Admin Profile — Full-Fledged (2026-09-01)
-- [x] `POST /users` persists `photoURL/createdAt` (+ sync on dup), `GET /user` secured, `GET /users` staff-only
-- [x] `GET /users/me` + `PATCH /users/me` whitelist (name/photoURL/coverPhoto/phone/bio/city/country/skills) with validation
+History: `docs/TASK_HISTORY.md` · Narrative: `docs/HANDOFF_LOG.md` · Deploy: `docs/DEPLOY.md`.
 
 ---
 
 ## IN PROGRESS
 
-_(nothing right now — next unit goes here when started)_
+- Scholarship Transformation (2026-09-01) — server foundations for faceted search + saved + stats
+
+## TODO — Scholarship Transformation
+
+- [ ] `GET /allScholership` (+ alias `/scholarships`, `/allScholarships`) — `q/category/subject/degree/country/city/maxFees/deadlineAfter/sort/page/limit`, indexes, `{data,total}` pagination, text search
+- [ ] Secure `POST/PATCH/DELETE /allScholership` (`verifyToken+verifyModaretor`) + alias routes
+- [ ] Saved collection: `POST /saved` toggle, `GET /saved`, `DELETE /saved/:id` (unique `userEmail+scholarshipId`), `verifyToken`
+- [ ] `GET /scholarships/stats` (and `/allScholership/stats`) real counts + sums
+- [ ] Extend scholarship schema optional `eligibility/benefits/duration/tags/currency` (backward compat)
 
 ---
 
 ## BACKLOG / KNOWN GAPS
 
-_(candidate work, not yet started. Add anything you find.)_
-
-- [ ] Add automated tests (no test framework wired up; `npm test` is a placeholder).
-- [ ] Split `index.js` into route controllers / middleware modules (currently a single 674-line file).
+- [ ] Add automated tests (no test framework; `npm test` placeholder).
+- [ ] Split `index.js` into route controllers / middleware modules (single 674-line file).
 - [ ] Add schema validation for scholarship/review/application payloads.
-- [ ] Add pagination to list endpoints (`/allScholership`, `/allapply`, `/allReviews`).
-- [ ] Centralize role guard helpers (`verifyAdmin`, `verifySuperAdmin`, `verifyOwnerModifiable` are defined inline).
+- [ ] Centralize role guard helpers (`verifyAdmin` etc. inline).
+
