@@ -8,6 +8,26 @@ which is the master narrative — keep the two consistent.
 
 ---
 
+## 2026-09-02 — Role portals, institution role + approvals + scholarship ownership (branch `feature/login-roles`, committed `295e71e`)
+
+**What was done**
+- **Role derived from `accountType`, not trusted client `role`** — `POST /users` sets `role: "student"|"institution"` from the submitted `accountType`; `role` from the body is ignored (closes privilege-escalation vector). `ADMIN_EMAILS` still force `superadmin` + `active`. Legacy backfill sync keeps old rows consistent.
+- **Institution signup** — `role:"institution", status:"pending"` with org fields (`orgName, orgType, orgCountry, orgWebsite, orgDescription`) + `statusNote/reviewedAt/reviewedBy`; `PATCH /users/me` whitelist extended with org fields; `GET /users/public/:email` returns `status` + org fields.
+- **New middlewares** — `verifyInstitution`, `verifyScholarshipEditor` (superadmin OR approved institution), `verifyScholarshipOwner` (superadmin OR `createdBy`-owning institution, with `ObjectId` validation).
+- **Approvals API** — `GET /users/institution/:email`, `GET /institutions?status=`, `GET /institutions/pending`, `PATCH /users/institution/:id` (`{status, reason}`) superadmin-only, sets `approvedAt/rejectedAt`; resolved-institution scholarship access requires `status:"approved"`.
+- **Scholarship guardrails** — create stamps `createdBy`/`createdByRole` from `req.authUser`; edit/delete restricted to editor/owner. Superadmin+institutions only; admin/mod now **cannot** create/edit/delete scholarships (403).
+- **Application security** — helpers `canAccessApplication` + `findApplyScholarship`; `GET /apply` own-or-staff, `GET /allapply` staff / institution-owned / self, `GET /singleApply/:id`, `PATCH /allapply/cancel/:id`, `PATCH /allapply/accepted/:id` all `verifyToken+loadAuthUser`, invalid OID → 400; removed stale duplicate accepted handler.
+- `node --check index.js` OK; server `TASKS.md` updated.
+
+**Blocker**
+- Same as before — `VERCEL_TOKEN` invalid, server not yet deployed. Local test blocked until user creates `Schole-hive-server/.env` (Mongo/DB creds + `ACCESS_TOKEN_SECRET` + `ADMIN_EMAILS`) and runs `npm start` against `localhost:5000`.
+
+**Left / next**
+- E2E smoke (see client log 2026-09-02): student active; institution register→pending; superadmin approve; institution adds/edits own scholarship; admin/mod 403 on scholarship CRUD; reject → rejected screen.
+- Deploy requires fresh `VERCEL_TOKEN` (`npx vercel --prod --yes --token`).
+
+---
+
 ## 2026-09-01 — Profile full-fledged + review moderation
 
 **What was done**
