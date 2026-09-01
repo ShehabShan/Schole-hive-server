@@ -29,6 +29,7 @@ the rules below. This is the MIRROR of the client repo's system
 - **Never store secrets in the repo.** No tokens, passwords, or API keys in
   committed files (incl. `.env`, `.env.local`, `deploy.env`). The server reads its
   secrets from Vercel Environment Variables and local `.env` (gitignored).
+- **DEPLOY BLOCK — owner permission required (client + server).** NEVER run `npm run deploy`, `npx vercel --prod`, `vercel --prod`, `git push origin main` (Vercel auto-deploys on push to `main`), or `git merge feature/* -> main` without the owner's explicit permission in the current session. Permission must be an explicit user message such as `deploy approved`, `yes deploy`, or `allow deploy`. If a task would require a deploy, you MUST first ask the owner via the `question` tool and wait for affirmative confirmation. Document the decision in `docs/HANDOFF_LOG.md`. This rule overrides "Commit frequently / Push after every commit" for production deploys — pushing to `feature/*` branches is allowed, pushing/deploying to `main`/production is not.
 - **No debug leftovers.** Remove `console.log` debug statements before committing.
 
 ## 3. Project overview

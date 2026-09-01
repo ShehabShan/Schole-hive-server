@@ -1,5 +1,8 @@
 # DEPLOY.md — Schole-hive-server (Vercel)
 
+> **⛔ DEPLOY PERMISSION REQUIRED — DO NOT DEPLOY WITHOUT OWNER APPROVAL**
+> NEVER `git push origin main` (Vercel auto-deploys), `npx vercel --prod`, or `git merge feature/* -> main` without the owner's explicit `deploy approved` / `yes deploy` message in the current session. Ask via the `question` tool and wait. See `AGENTS.md` §2 "DEPLOY BLOCK". Pushing to `feature/*` is allowed; production deploys are blocked.
+
 | Piece | Host | Repo | URL |
 |-------|------|------|-----|
 | Server | Vercel | `Schole-hive-server` (this repo) | https://server-six-vert.vercel.app |
