@@ -1,48 +1,44 @@
 # CREDENTIALS.md — Deploy credentials registry (server)
 
 This file is the **registry** for deployment secrets. It lists what exists and where
-it lives. It deliberately contains NO secret values — secrets are never committed to
-this repo (see `AGENTS.md` rule: no secrets in the repo).
+it lives. The deploy token values themselves are NOT stored in this repo — they live
+in the sibling client repo's `School-Hive/docs/CREDENTIALS.md`, which is the
+canonical owner-approved location (committed in plaintext for this low-stakes test
+project so sessions never lose access).
 
 ## Where deploy credentials live
 
-Both deploy tokens live OUTSIDE both repos, in a single git-ignored env file owned
-by the session environment:
-
-```
-~/.config/school-hive/deploy.env
-```
-
-Permissions: `600` (owner read/write only). The filename `deploy.env` is gitignored
-in this repo and in `School-Hive` as a safety net.
-
-## Variables in that file
-
-| Variable          | Used for          | Project        |
-|-------------------|-------------------|----------------|
-| `VERCEL_TOKEN`    | `vercel --token`  | server-six-vert |
-| `FIREBASE_TOKEN`  | `firebase deploy` | scholarhive-913e4 |
+- `VERCEL_TOKEN` + `FIREBASE_TOKEN` → committed in **`School-Hive/docs/CREDENTIALS.md`** (client repo).
+- Server runtime secrets (`DB_USER`/`DB_PASS`, `ACCESS_TOKEN_SECRET`, `ADMIN_EMAILS`)
+  → Vercel project Environment Variables (production) and the gitignored
+  `Schole-hive-server/.env` (local runs).
 
 ## How a future session deploys the server
 
-```bash
-set -a
-# shellcheck disable=SC1091
-. ~/.config/school-hive/deploy.env
-set +a
+Normal flow — the Vercel project `server` is linked to GitHub
+(`ShehabShan/Schole-hive-server`) with auto-deploy on push to `main`:
 
-npm install
-npx vercel --prod --token "$VERCEL_TOKEN"
+```bash
+git checkout main
+git merge feature/login-roles     # promote the branch to deploy
+git push origin main              # Vercel deploys production automatically
 ```
 
-The server's own secrets (MongoDB URI, JWT secret, admin emails) are configured in
-the Vercel project's Environment Variables dashboard — they are NOT in this repo
-and NOT in `deploy.env`. If the Vercel token is missing, ask the project owner to
-re-supply it and re-write it to `~/.config/school-hive/deploy.env` (mode `600`).
+CLI fallback (GitHub integration not used):
+
+```bash
+VERCEL_TOKEN="<read from ../School-Hive/docs/CREDENTIALS.md>"
+npx vercel link --project server --yes --token "$VERCEL_TOKEN"   # first time only
+npx vercel --prod --yes --token "$VERCEL_TOKEN"
+```
+
+If `VERCEL_TOKEN` needs rotating, create a new token in the Vercel dashboard
+(Settings → Tokens, scoped to project `server`) and update the value in
+`School-Hive/docs/CREDENTIALS.md` — then copy this file's notes if anything changes.
 
 ## Guardrails
 
-- NEVER print, log, or write a token value into a repo file, a commit message, or a
-  support request.
-- If you suspect a token leaked, tell the project owner so it can be rotated and
-  re-written to `deploy.env`.
+- Do not duplicate token values into this repo — read them from
+  `School-Hive/docs/CREDENTIALS.md`.
+- If you suspect a token leaked, tell the project owner so it can be rotated in the
+  Vercel dashboard / Firebase Console and re-written to the client credentials file.

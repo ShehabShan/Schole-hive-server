@@ -5,20 +5,29 @@
 | Server | Vercel | `Schole-hive-server` (this repo) | https://server-six-vert.vercel.app |
 | Client | Firebase Hosting | `School-Hive` (sibling repo) | https://scholarhive-913e4.web.app |
 
-Deploy credentials are NOT committed. See `docs/CREDENTIALS.md` for where they
-live and how to load them.
+Deploy credentials are NOT committed here. They live in the sibling client repo's
+`School-Hive/docs/CREDENTIALS.md`. See `docs/CREDENTIALS.md` (server) for details.
 
 ## Deploy (Vercel)
 
-IMPORTANT: The production URL `https://server-six-vert.vercel.app` belongs to the
-existing Vercel project named **`server`** (NOT `schole-hive-server`). If the repo
-is not linked yet, run `npx vercel link --project server --yes --token "$VERCEL_TOKEN"`
-FIRST. Deploying without linking will create a new throwaway project. The link
-writes `.vercel/project.json` (gitignored).
+The Vercel project **`server`** is linked to GitHub
+(`ShehabShan/Schole-hive-server`) with auto-deploy: **every push to `main`
+deploys production** to `https://server-six-vert.vercel.app`. Normal flow:
+
+```bash
+git checkout main
+git merge feature/<branch>      # promote work to main
+git push origin main            # Vercel auto-deploys
+```
+
+CLI fallback (GitHub integration not used): the production URL belongs to the
+existing project named **`server`** (NOT `schole-hive-server`). Link to it first
+or you'll create a throwaway project; the link writes `.vercel/project.json`
+(gitignored).
 
 ```bash
 npm install
-# load Vercel token (see CREDENTIALS.md), then:
+VERCEL_TOKEN="<read from School-Hive/docs/CREDENTIALS.md>"
 npx vercel link --project server --yes --token "$VERCEL_TOKEN"   # first time only
 npx vercel --prod --yes --token "$VERCEL_TOKEN"
 ```
