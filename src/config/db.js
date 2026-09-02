@@ -48,6 +48,7 @@ async function ensureIndexes() {
   }
 
   try {
+    await scholership.createIndex({ status: 1 }, { background: true });
     await scholership.createIndex({ country: 1, scholarshipCategory: 1, degree: 1 }, { background: true });
     await scholership.createIndex({ subjectName: 1 }, { background: true });
     await scholership.createIndex({ applicationDeadline: 1 }, { background: true });
