@@ -15,7 +15,13 @@ router.get("/users/modaretor/:email", verifyToken, asyncHandler(c.checkModaretor
 router.get("/users/user/:email", verifyToken, asyncHandler(c.checkUser));
 router.get("/user", verifyToken, loadAuthUser, asyncHandler(c.getUserByEmail));
 router.get("/users/public/:email", asyncHandler(c.getPublicUser));
+router.get("/users/public/:email/stats", asyncHandler(c.getPublicStats));
 router.get("/users/me", verifyToken, loadAuthUser, asyncHandler(c.getMe));
+router.get("/users/me/stats", verifyToken, loadAuthUser, asyncHandler(c.getMeStats));
+router.get("/users/me/portal", verifyToken, loadAuthUser, asyncHandler(c.getPortal));
+router.get("/users/:email/followers", asyncHandler(c.getFollowers));
+router.get("/users/:email/follow", verifyToken, loadAuthUser, asyncHandler(c.checkFollow));
+router.post("/users/:email/follow", verifyToken, loadAuthUser, asyncHandler(c.toggleFollow));
 router.patch("/users/me", verifyToken, loadAuthUser, asyncHandler(c.patchMe));
 router.patch("/users/admin/:id", verifyToken, loadAuthUser, verifyAdmin, verifyOwnerModifiable, asyncHandler((req, res) => c.patchRole({ ...req, params: { ...req.params, role: "admin" } }, res)));
 router.patch("/users/modaretor/:id", verifyToken, loadAuthUser, verifyAdmin, verifyOwnerModifiable, asyncHandler((req, res) => c.patchRole({ ...req, params: { ...req.params, role: "modaretor" } }, res)));

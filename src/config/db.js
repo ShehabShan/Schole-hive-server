@@ -29,6 +29,8 @@ async function connect() {
     saved: db.collection("saved"),
     inquiries: db.collection("inquiries"),
     reviewHistory: db.collection("review_history"),
+    institutionStudents: db.collection("institution_students"),
+    follows: db.collection("follows"),
   };
 
   await ensureIndexes();
@@ -37,7 +39,7 @@ async function connect() {
 }
 
 async function ensureIndexes() {
-  const { reviews, scholership, saved, inquiries, reviewHistory } = collections;
+  const { reviews, scholership, saved, inquiries, reviewHistory, users, apply, institutionStudents, follows } = collections;
 
   try {
     await reviews.createIndex({ reviewer_email: 1, scholarShip_id: 1 }, { unique: true, background: true });
@@ -66,6 +68,24 @@ async function ensureIndexes() {
     await reviewHistory.createIndex({ scholarshipId: 1 }, { background: true });
   } catch (e) {
     console.log("scholarship/saved index warning", e.message);
+  }
+
+  try {
+    await users.createIndex({ email: 1 }, { unique: true, background: true });
+    await users.createIndex({ role: 1 }, { background: true });
+    await users.createIndex({ role: 1, status: 1 }, { background: true });
+    await users.createIndex({ createdAt: -1 }, { background: true });
+    await scholership.createIndex({ createdBy: 1 }, { background: true });
+    await apply.createIndex({ email: 1 }, { background: true });
+    await apply.createIndex({ scholarship_id: 1 }, { background: true });
+    await apply.createIndex({ email: 1, applicationStatus: 1 }, { background: true });
+    await institutionStudents.createIndex({ institutionEmail: 1, studentEmail: 1 }, { unique: true, background: true });
+    await institutionStudents.createIndex({ institutionEmail: 1, createdAt: -1 }, { background: true });
+    await follows.createIndex({ followerEmail: 1, followingEmail: 1 }, { unique: true, background: true });
+    await follows.createIndex({ followingEmail: 1 }, { background: true });
+    await follows.createIndex({ followerEmail: 1 }, { background: true });
+  } catch (e) {
+    console.log("user/apply/follow index warning", e.message);
   }
 }
 

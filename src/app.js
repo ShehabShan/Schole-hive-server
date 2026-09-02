@@ -23,6 +23,7 @@ const inquiryRoutes = require("./routes/inquiry.routes");
 const reviewRoutes = require("./routes/review.routes");
 const applyRoutes = require("./routes/apply.routes");
 const seedRoutes = require("./routes/seed.routes");
+const institutionStudentsRoutes = require("./routes/institutionStudents.routes");
 
 function createApp() {
   const app = express();
@@ -55,6 +56,7 @@ function createApp() {
   app.use(reviewRoutes);
   app.use(applyRoutes);
   app.use(seedRoutes);
+  app.use(institutionStudentsRoutes);
 
   // 404 + error handler
   app.use(notFound);
