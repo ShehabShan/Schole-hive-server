@@ -1,10 +1,19 @@
 function buildScholarshipFilter(q) {
   const filter = {};
   const st = String(q.status || "").toLowerCase().trim();
-  if (!st) filter.status = { $ne: "draft" }; // hide drafts by default (public catalog)
-  else if (st === "all") { /* no filter — show both */ }
+  if (!st) {
+    // hide drafts and scheduled (future) by default — public catalog shows only published
+    filter.status = { $nin: ["draft", "scheduled"] };
+  } else if (st === "all") { /* no filter — show all */ }
   else if (st === "draft" || st === "published") filter.status = st;
-  else filter.status = String(q.status).trim();
+  else if (st === "scheduled") {
+    filter.status = "scheduled";
+    // for public profile, only show scheduled if institution allowed it (showScheduledOnProfile true)
+    // if request includes createdBy/creatorEmail, filter by flag; otherwise show all scheduled (for owner manage)
+    if (q.createdBy || q.creatorEmail || q.profileEmail) {
+      filter.showScheduledOnProfile = true;
+    }
+  } else filter.status = String(q.status).trim();
   const rawQ = String(q.q || q.search || "").trim();
   if (rawQ) {
     const rx = { $regex: rawQ.slice(0, 100).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), $options: "i" };
@@ -74,8 +83,31 @@ function normalizeScholarshipDoc(doc) {
   doc.gallery = doc.gallery.map((u) => String(u).trim()).filter(Boolean).slice(0, 8);
   if (!doc.currency) doc.currency = "USD";
   if (!doc.duration) doc.duration = strip(doc.duration || "") || null;
+  // scheduled handling with publishAt and 30-day limit
+  if (doc.publishAt) {
+    const d = new Date(doc.publishAt);
+    if (isNaN(d.getTime())) doc.publishAt = null;
+    else {
+      const now = new Date();
+      const max = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+      if (d <= now || d > max) throw new Error("publishAt must be future within 30 days");
+      doc.publishAt = d;
+    }
+  } else {
+    doc.publishAt = null;
+  }
   if (!doc.status) doc.status = "published";
-  else doc.status = String(doc.status).toLowerCase() === "draft" ? "draft" : "published";
+  else {
+    const st = String(doc.status).toLowerCase();
+    if (st === "draft") doc.status = "draft";
+    else if (st === "scheduled") {
+      if (!doc.publishAt) throw new Error("scheduled requires publishAt");
+      doc.status = "scheduled";
+    } else doc.status = "published";
+  }
+  if (doc.status === "draft") doc.publishAt = null;
+  if (doc.showScheduledOnProfile !== undefined) doc.showScheduledOnProfile = !!doc.showScheduledOnProfile;
+  else doc.showScheduledOnProfile = false;
   if (doc.universityName) doc.universityName = strip(doc.universityName).slice(0, 120);
   if (doc.scholarshipName) doc.scholarshipName = strip(doc.scholarshipName).slice(0, 200);
   if (doc.scholarshipDescription) doc.scholarshipDescription = strip(doc.scholarshipDescription).slice(0, 2000);
@@ -94,7 +126,33 @@ function normalizeScholarshipPatch(body) {
   const b = { ...body };
   delete b._id;
   delete b.subjectName2;
-  if (b.status !== undefined) b.status = String(b.status).toLowerCase() === "draft" ? "draft" : "published";
+  if (b.status !== undefined) {
+    const st = String(b.status).toLowerCase();
+    if (st === "draft") { b.status = "draft"; b.publishAt = null; }
+    else if (st === "scheduled") {
+      if (!b.publishAt) throw new Error("scheduled requires publishAt");
+      const d = new Date(b.publishAt);
+      if (isNaN(d.getTime())) throw new Error("invalid publishAt");
+      const now = new Date();
+      const max = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+      if (d <= now || d > max) throw new Error("publishAt must be future within 30 days");
+      b.publishAt = d;
+      b.status = "scheduled";
+    } else { b.status = "published"; b.publishAt = null; }
+  }
+  if (b.publishAt !== undefined && b.status !== "scheduled") {
+    // if publishAt provided without scheduled status, handle
+    if (b.publishAt) {
+      const d = new Date(b.publishAt);
+      if (!isNaN(d.getTime())) {
+        const now = new Date();
+        const max = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+        if (d > now && d <= max) { b.publishAt = d; b.status = "scheduled"; }
+        else b.publishAt = null;
+      } else b.publishAt = null;
+    } else b.publishAt = null;
+  }
+  if (b.showScheduledOnProfile !== undefined) b.showScheduledOnProfile = !!b.showScheduledOnProfile;
   const strip = (s) => String(s || "").replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, "").replace(/<[^>]*>?/gm, "").trim();
   const cleanArr = (arr, limit = 20) => arr.map((s) => strip(String(s))).filter(Boolean).slice(0, limit);
   if (b.universityName) b.universityName = strip(b.universityName).slice(0, 120);

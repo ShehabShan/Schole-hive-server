@@ -2,7 +2,7 @@ const express = require("express");
 const asyncHandler = require("../utils/asyncHandler");
 const verifyToken = require("../middleware/verifyToken");
 const loadAuthUser = require("../middleware/loadAuthUser");
-const { verifyScholarshipEditor, verifyScholarshipOwner } = require("../middleware/authorize");
+const { verifyScholarshipEditor, verifyScholarshipOwner, verifyScholarshipOwnerEdit, verifyScholarshipOwnerDelete } = require("../middleware/authorize");
 const c = require("../controllers/scholarship.controller");
 
 const router = express.Router();
@@ -28,12 +28,12 @@ router.post("/allScholership", verifyToken, loadAuthUser, verifyScholarshipEdito
 router.post("/allScholarships", verifyToken, loadAuthUser, verifyScholarshipEditor, asyncHandler(c.createScholarship));
 router.post("/scholarships", verifyToken, loadAuthUser, verifyScholarshipEditor, asyncHandler(c.createScholarship));
 
-router.delete("/allScholership/:id", verifyToken, loadAuthUser, verifyScholarshipOwner, asyncHandler(c.deleteScholarship));
-router.delete("/allScholarships/:id", verifyToken, loadAuthUser, verifyScholarshipOwner, asyncHandler(c.deleteScholarship));
-router.delete("/scholarships/:id", verifyToken, loadAuthUser, verifyScholarshipOwner, asyncHandler(c.deleteScholarship));
+router.delete("/allScholership/:id", verifyToken, loadAuthUser, verifyScholarshipOwnerDelete, asyncHandler(c.deleteScholarship));
+router.delete("/allScholarships/:id", verifyToken, loadAuthUser, verifyScholarshipOwnerDelete, asyncHandler(c.deleteScholarship));
+router.delete("/scholarships/:id", verifyToken, loadAuthUser, verifyScholarshipOwnerDelete, asyncHandler(c.deleteScholarship));
 
-router.patch("/allScholership/:id", verifyToken, loadAuthUser, verifyScholarshipOwner, asyncHandler(c.patchScholarship));
-router.patch("/allScholarships/:id", verifyToken, loadAuthUser, verifyScholarshipOwner, asyncHandler(c.patchScholarship));
-router.patch("/scholarships/:id", verifyToken, loadAuthUser, verifyScholarshipOwner, asyncHandler(c.patchScholarship));
+router.patch("/allScholership/:id", verifyToken, loadAuthUser, verifyScholarshipOwnerEdit, asyncHandler(c.patchScholarship));
+router.patch("/allScholarships/:id", verifyToken, loadAuthUser, verifyScholarshipOwnerEdit, asyncHandler(c.patchScholarship));
+router.patch("/scholarships/:id", verifyToken, loadAuthUser, verifyScholarshipOwnerEdit, asyncHandler(c.patchScholarship));
 
 module.exports = router;

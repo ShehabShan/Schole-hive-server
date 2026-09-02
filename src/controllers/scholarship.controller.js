@@ -4,6 +4,22 @@ const { buildScholarshipFilter, buildScholarshipSort, normalizeScholarshipDoc, n
 
 async function listScholarships(req, res) {
   const { scholership } = getCollections();
+  // lazy publish: auto-publish due scheduled
+  try {
+    await scholership.updateMany({ status: "scheduled", publishAt: { $lte: new Date() } }, { $set: { status: "published", publishAt: null, postDate: new Date().toISOString().slice(0, 10), updatedAt: new Date() } });
+  } catch {}
+  // handle scheduled visibility on public profile if institution allows
+  if (req.query.createdBy || req.query.creatorEmail || req.query.profileEmail) {
+    const email = String(req.query.createdBy || req.query.creatorEmail || req.query.profileEmail).toLowerCase();
+    try {
+      const { users } = getCollections();
+      const inst = await users.findOne({ email, role: "institution", showScheduledOnProfile: true });
+      if (inst && !req.query.status) {
+        // allow scheduled to be visible for this profile — remove draft/scheduled filter for this creator
+        // we will handle via separate fetch for scheduled, so keep default filter but client can request status=scheduled
+      }
+    } catch {}
+  }
   const hasPaging = req.query.page !== undefined || req.query.limit !== undefined;
   const filter = buildScholarshipFilter(req.query);
   const sort = buildScholarshipSort(req.query.sort);
