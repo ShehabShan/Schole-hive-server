@@ -5,7 +5,7 @@
   ],
   "functions": {
     "src/**/*.js": {
-      "maxDuration": 120
+      "maxDuration": 60
     }
   }
 }
