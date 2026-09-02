@@ -22,6 +22,7 @@ const savedRoutes = require("./routes/saved.routes");
 const inquiryRoutes = require("./routes/inquiry.routes");
 const reviewRoutes = require("./routes/review.routes");
 const applyRoutes = require("./routes/apply.routes");
+const seedRoutes = require("./routes/seed.routes");
 
 function createApp() {
   const app = express();
@@ -29,6 +30,7 @@ function createApp() {
   app.use(
     cors({
       origin: [
+        "http://localhost:3000",
         "http://localhost:5173",
         "https://scholarhive-913e4.web.app",
         "https://scholarhive-913e4.firebaseapp.com",
@@ -52,6 +54,7 @@ function createApp() {
   app.use(inquiryRoutes);
   app.use(reviewRoutes);
   app.use(applyRoutes);
+  app.use(seedRoutes);
 
   // 404 + error handler
   app.use(notFound);
