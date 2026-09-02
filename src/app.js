@@ -30,6 +30,7 @@ function createApp() {
   app.use(
     cors({
       origin: [
+        "http://localhost:3000",
         "http://localhost:5173",
         "https://scholarhive-913e4.web.app",
         "https://scholarhive-913e4.firebaseapp.com",
