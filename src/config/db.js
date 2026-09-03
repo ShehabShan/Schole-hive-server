@@ -105,6 +105,10 @@ async function ensureIndexes() {
       { title: "text", body: "text", tags: "text" },
       { background: true, name: "questions_text_idx" }
     );
+    // backfill denormalized answerCount for pre-existing questions (idempotent)
+    const counts = await answers.aggregate([{ $group: { _id: "$questionId", n: { $sum: 1 } } }]).toArray();
+    for (const c of counts) await questions.updateOne({ _id: c._id }, { $set: { answerCount: c.n } });
+    await questions.updateMany({ answerCount: { $exists: false } }, { $set: { answerCount: 0 } });
   } catch (e) {
     console.log("questions index warning", e.message);
   }

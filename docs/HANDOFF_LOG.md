@@ -8,6 +8,20 @@ which is the master narrative — keep the two consistent.
 
 ---
 
+## 2026-09-03 — Q&A redesign: answerCount denormalization (feature/qa-redesign, `01bce5d`)
+
+**What was done**
+- Client-driven Q&A UI overhaul required real answer counts on browse cards (previously always 0 — `GET /questions` returned neither `answers[]` nor a count).
+- `src/utils/question.validator.js`: `buildQuestionDoc` now defaults `answerCount: 0`.
+- `src/controllers/answer.controller.js` `createAnswer`: `$inc: { answerCount: 1 }` + touch `updatedAt`.
+- `src/config/db.js` `ensureIndexes`: idempotent backfill — aggregate answers per questionId → set count, then default 0 for the rest (same pattern as reputation backfill).
+- Verified live via controller test: create → 0 PASS, answer → 1 PASS, list exposes 1 PASS. `node --check` + `npm run check` PASS.
+
+**Notes**
+- Branch `feature/qa-redesign` (NOT main; no deploy — needs owner approval). Accepted state is derivable client-side from existing `acceptedAnswerId`.
+
+---
+
 ## 2026-09-02 — Modular architecture refactor (commit 7af9ab4)
 
 **What was done**
