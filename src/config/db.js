@@ -32,6 +32,8 @@ async function connect() {
     institutionStudents: db.collection("institution_students"),
     follows: db.collection("follows"),
     questions: db.collection("questions"),
+    answers: db.collection("answers"),
+    reputationEvents: db.collection("reputationEvents"),
   };
 
   await ensureIndexes();
@@ -40,7 +42,7 @@ async function connect() {
 }
 
 async function ensureIndexes() {
-  const { reviews, scholership, saved, inquiries, reviewHistory, users, apply, institutionStudents, follows, questions } = collections;
+  const { reviews, scholership, saved, inquiries, reviewHistory, users, apply, institutionStudents, follows, questions, answers, reputationEvents } = collections;
 
   try {
     await reviews.createIndex({ reviewer_email: 1, scholarShip_id: 1 }, { unique: true, background: true });
@@ -104,6 +106,27 @@ async function ensureIndexes() {
     );
   } catch (e) {
     console.log("questions index warning", e.message);
+  }
+
+  // Q&A Forum V1 — Task 2: answers + reputationEvents indexes
+  try {
+    await answers.createIndex({ questionId: 1, createdAt: 1 }, { background: true });
+    await answers.createIndex({ questionId: 1, accepted: 1 }, { background: true });
+    await answers.createIndex({ authorEmail: 1, createdAt: -1 }, { background: true });
+    await answers.createIndex({ createdAt: -1 }, { background: true });
+
+    await reputationEvents.createIndex({ userId: 1, createdAt: -1 }, { background: true });
+    await reputationEvents.createIndex({ type: 1 }, { background: true });
+    await reputationEvents.createIndex({ relatedQuestionId: 1 }, { background: true, sparse: true });
+    await reputationEvents.createIndex({ relatedAnswerId: 1 }, { background: true, sparse: true });
+
+    // backfill defaults for existing users (no data loss) — lightweight
+    await users.updateMany({ reputation: { $exists: false } }, { $set: { reputation: 0 } });
+    await users.updateMany({ isVerified: { $exists: false } }, { $set: { isVerified: false } });
+    await users.createIndex({ reputation: -1 }, { background: true });
+    await users.createIndex({ isVerified: 1 }, { background: true, sparse: true });
+  } catch (e) {
+    console.log("answers/reputationEvents index warning", e.message);
   }
 }
 

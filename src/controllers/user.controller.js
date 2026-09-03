@@ -69,6 +69,8 @@ async function createUser(req, res) {
     email: String(incoming.email).toLowerCase().trim(),
     role: isInstitution ? "institution" : "user",
     status: isInstitution ? "pending" : "active",
+    reputation: 0,
+    isVerified: false,
     photoURL: incoming.photoURL || null,
     phone: incoming.phone || null,
     bio: incoming.bio || null,
@@ -266,6 +268,8 @@ function pickPublic(u) {
     skills: u.skills,
     role: u.role,
     status: u.status,
+    reputation: typeof u.reputation === "number" ? u.reputation : 0,
+    isVerified: Boolean(u.isVerified),
     headline: u.headline,
     socials: u.socials,
     languages: u.languages,
@@ -611,8 +615,20 @@ async function patchRole(req, res) {
 }
 
 async function deleteUser(req, res) {
-  const { users } = getCollections();
-  const result = await users.deleteOne({ _id: new ObjectId(req.params.id) });
+  const { users, reputationEvents, questions, answers } = getCollections();
+  const oid = new ObjectId(req.params.id);
+  const userDoc = await users.findOne({ _id: oid }, { projection: { email: 1 } });
+  const result = await users.deleteOne({ _id: oid });
+  // permanence principle: anonymize reputationEvents instead of deleting — preserve history
+  try {
+    await reputationEvents.updateMany({ userId: oid }, { $set: { userId: null, anonymized: true } });
+    if (userDoc?.email) {
+      await reputationEvents.updateMany({ userId: userDoc.email }, { $set: { userId: null, anonymized: true } });
+      // keep question/answer history but anonymize author reference
+      await questions.updateMany({ authorId: oid }, { $set: { authorId: null, anonymized: true } });
+      await answers.updateMany({ authorId: oid }, { $set: { authorId: null, anonymized: true } });
+    }
+  } catch (_) {}
   res.status(201).json({ message: "user deleted successfully", data: result });
 }
 
