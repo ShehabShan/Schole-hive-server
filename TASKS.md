@@ -9,7 +9,7 @@ History: `docs/TASK_HISTORY.md` · Narrative: `docs/HANDOFF_LOG.md` · Deploy: `
 
 ## IN PROGRESS
 
-- Login / role system (feature/login-roles) — SERVER DONE, waiting on client branch
+- **Q&A redesign (feature/qa-redesign)** — client-driven overhaul; server touch done: `01bce5d` denormalized `answerCount` on questions (`buildQuestionDoc` default 0, `createAnswer` `$inc`, `ensureIndexes` idempotent backfill) so browse cards show real answered/accepted state. Branch ready to merge on client sign-off; deploy needs owner "deploy approved".
 
 ## DONE — Login / Role System (2026-09-02, feature/login-roles)
 
