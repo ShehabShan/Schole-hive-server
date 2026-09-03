@@ -105,12 +105,19 @@ async function ensureIndexes() {
       { title: "text", body: "text", tags: "text" },
       { background: true, name: "questions_text_idx" }
     );
-    // backfill denormalized answerCount for pre-existing questions (idempotent)
+  } catch (e) {
+    console.log("questions index warning", e.message);
+  }
+
+  // backfill denormalized answerCount for pre-existing questions (idempotent)
+  // NOTE: must live in its own try — the text index above throws under
+  // apiStrict:true, which would skip anything after it in the same block.
+  try {
     const counts = await answers.aggregate([{ $group: { _id: "$questionId", n: { $sum: 1 } } }]).toArray();
     for (const c of counts) await questions.updateOne({ _id: c._id }, { $set: { answerCount: c.n } });
     await questions.updateMany({ answerCount: { $exists: false } }, { $set: { answerCount: 0 } });
   } catch (e) {
-    console.log("questions index warning", e.message);
+    console.log("answerCount backfill warning", e.message);
   }
 
   // Q&A Forum V1 — Task 2: answers + reputationEvents indexes
