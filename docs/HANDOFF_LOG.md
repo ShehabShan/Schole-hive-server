@@ -19,6 +19,7 @@ which is the master narrative — keep the two consistent.
 
 **Notes**
 - Branch `feature/qa-redesign` (NOT main; no deploy — needs owner approval). Accepted state is derivable client-side from existing `acceptedAnswerId`.
+- **DEPLOYED (owner-approved)**: main `5c8e19f` + hotfix `05a5bdb` — backfill originally sat after the throwing `questions_text_idx` createIndex inside one try block (apiStrict error skipped it, 3/3 docs missing); moved to its own try/catch, verified 0/3 missing. Live via `npx vercel --prod --yes` `✓ Ready 13s`; `GET /questions` now returns `answerCount`. GitHub push→auto-deploy did not promote (again) — manual deploy is the reliable path.
 
 ---
 
