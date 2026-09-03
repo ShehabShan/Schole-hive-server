@@ -71,6 +71,7 @@ function buildQuestionDoc({ payload, author }) {
     authorId: author?.userId || author?._id || null,
     authorEmail: author?.email || null,
     authorRole: author?.role || "user",
+    authorIsVerified: Boolean(author?.isVerified),
     createdAt: now,
     updatedAt: now,
     acceptedAnswerId: null,

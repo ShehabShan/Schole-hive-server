@@ -34,6 +34,7 @@ async function connect() {
     questions: db.collection("questions"),
     answers: db.collection("answers"),
     reputationEvents: db.collection("reputationEvents"),
+    verifyRequests: db.collection("verifyRequests"),
   };
 
   await ensureIndexes();
@@ -42,7 +43,7 @@ async function connect() {
 }
 
 async function ensureIndexes() {
-  const { reviews, scholership, saved, inquiries, reviewHistory, users, apply, institutionStudents, follows, questions, answers, reputationEvents } = collections;
+  const { reviews, scholership, saved, inquiries, reviewHistory, users, apply, institutionStudents, follows, questions, answers, reputationEvents, verifyRequests } = collections;
 
   try {
     await reviews.createIndex({ reviewer_email: 1, scholarShip_id: 1 }, { unique: true, background: true });
@@ -127,6 +128,15 @@ async function ensureIndexes() {
     await users.createIndex({ isVerified: 1 }, { background: true, sparse: true });
   } catch (e) {
     console.log("answers/reputationEvents index warning", e.message);
+  }
+
+  // Q&A Forum V1 — Task 11: verifyRequests indexes
+  try {
+    await verifyRequests.createIndex({ email: 1, createdAt: -1 }, { background: true });
+    await verifyRequests.createIndex({ status: 1, createdAt: -1 }, { background: true });
+    await verifyRequests.createIndex({ userId: 1 }, { background: true, sparse: true });
+  } catch (e) {
+    console.log("verifyRequests index warning", e.message);
   }
 }
 
