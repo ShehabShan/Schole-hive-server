@@ -1,6 +1,7 @@
 const { ObjectId } = require("mongodb");
 const { getCollections } = require("../config/db");
 const env = require("../config/env");
+const { validateProfilePatch } = require("../utils/profile.validator");
 
 function computeCompleteness(u) {
   if (!u) return 0;
@@ -440,161 +441,21 @@ async function getPortal(req, res) {
 }
 
 async function patchMe(req, res) {
-  const allowed = ["name", "photoURL", "phone", "bio", "city", "country", "skills", "coverPhoto", "orgName", "orgType", "orgCountry", "orgWebsite", "orgDescription","headline","socials","languages","interests","education","experience","certifications","achievements","gallery","videoIntro","preferences","orgFounded","orgAccreditation","orgStudentCount","orgFacultyCount","orgDepartments","orgPrograms","orgGallery","orgVideoUrl","orgBrochureUrl","orgMapUrl","orgHighlights"];
-  const updates = {};
-  for (const k of allowed) if (req.body[k] !== undefined) updates[k] = req.body[k];
+  const { valid, errors, data } = validateProfilePatch(req.body || {});
+  if (!valid) return res.status(400).json({ message: "validation failed", errors });
+  const updates = { ...data };
 
-  if (updates.name !== undefined) {
-    const n = String(updates.name).trim();
-    if (n.length < 2 || n.length > 80) return res.status(400).json({ message: "name 2-80 chars" });
-    updates.name = n;
-  }
-  if (updates.headline !== undefined) {
-    updates.headline = String(updates.headline).trim().slice(0, 120) || null;
-  }
-  if (updates.photoURL !== undefined && updates.photoURL) {
-    if (String(updates.photoURL).trim().length > 2000) return res.status(400).json({ message: "photoURL too long" });
-    updates.photoURL = String(updates.photoURL).trim();
-  }
-  if (updates.coverPhoto !== undefined && updates.coverPhoto) {
-    if (String(updates.coverPhoto).trim().length > 2000) return res.status(400).json({ message: "coverPhoto too long" });
-    updates.coverPhoto = String(updates.coverPhoto).trim();
-  }
-  if (updates.videoIntro !== undefined) updates.videoIntro = String(updates.videoIntro).trim().slice(0, 500) || null;
-  if (updates.phone !== undefined && updates.phone) updates.phone = String(updates.phone).trim().slice(0, 30);
-  if (updates.bio !== undefined && updates.bio) {
-    const b = String(updates.bio).trim();
-    if (b.length > 600) return res.status(400).json({ message: "bio max 600 chars" });
-    updates.bio = b;
-  }
-  if (updates.city !== undefined) updates.city = String(updates.city).trim().slice(0, 80) || null;
-  if (updates.country !== undefined) updates.country = String(updates.country).trim().slice(0, 80) || null;
-  if (updates.skills !== undefined) {
-    if (!Array.isArray(updates.skills)) return res.status(400).json({ message: "skills must be array" });
-    updates.skills = updates.skills.map((s) => String(s).trim()).filter(Boolean).slice(0, 20);
-  }
-  if (updates.socials !== undefined) {
-    if (typeof updates.socials !== "object" || Array.isArray(updates.socials)) return res.status(400).json({ message: "socials must be object" });
-    const s = updates.socials;
-    updates.socials = {
-      linkedin: s.linkedin ? String(s.linkedin).trim().slice(0,300) : null,
-      twitter: s.twitter ? String(s.twitter).trim().slice(0,300) : null,
-      github: s.github ? String(s.github).trim().slice(0,300) : null,
-      website: s.website ? String(s.website).trim().slice(0,300) : null,
-    };
-  }
-  if (updates.languages !== undefined) {
-    if (!Array.isArray(updates.languages)) return res.status(400).json({ message: "languages must be array" });
-    updates.languages = updates.languages.slice(0,8).map(l=>({
-      name: String(l.name||"").trim().slice(0,40),
-      level: ["native","fluent","intermediate","basic"].includes(String(l.level||"").toLowerCase()) ? String(l.level).toLowerCase() : "intermediate",
-    })).filter(l=>l.name);
-  }
-  if (updates.interests !== undefined) {
-    if (!Array.isArray(updates.interests)) return res.status(400).json({ message: "interests must be array" });
-    updates.interests = updates.interests.map(s=>String(s).trim()).filter(Boolean).slice(0,12);
-  }
-  if (updates.education !== undefined) {
-    if (!Array.isArray(updates.education)) return res.status(400).json({ message: "education must be array" });
-    updates.education = updates.education.slice(0,5).map(e=>({
-      school: String(e.school||"").trim().slice(0,120),
-      degree: String(e.degree||"").trim().slice(0,80),
-      field: String(e.field||"").trim().slice(0,80),
-      startYear: e.startYear ? Number(e.startYear) : null,
-      endYear: e.endYear ? Number(e.endYear) : null,
-      grade: String(e.grade||"").trim().slice(0,40) || null,
-      description: String(e.description||"").trim().slice(0,400) || null,
-      logoUrl: String(e.logoUrl||"").trim().slice(0,500) || null,
-    })).filter(e=>e.school);
-  }
-  if (updates.experience !== undefined) {
-    if (!Array.isArray(updates.experience)) return res.status(400).json({ message: "experience must be array" });
-    updates.experience = updates.experience.slice(0,6).map(e=>({
-      title: String(e.title||"").trim().slice(0,120),
-      org: String(e.org||"").trim().slice(0,120),
-      location: String(e.location||"").trim().slice(0,80) || null,
-      startDate: e.startDate ? String(e.startDate).slice(0,20) : null,
-      endDate: e.endDate ? String(e.endDate).slice(0,20) : null,
-      current: Boolean(e.current),
-      description: String(e.description||"").trim().slice(0,500) || null,
-    })).filter(e=>e.title && e.org);
-  }
-  if (updates.certifications !== undefined) {
-    if (!Array.isArray(updates.certifications)) return res.status(400).json({ message: "certifications must be array" });
-    updates.certifications = updates.certifications.slice(0,8).map(c=>({
-      name: String(c.name||"").trim().slice(0,120),
-      issuer: String(c.issuer||"").trim().slice(0,120),
-      issueDate: c.issueDate ? String(c.issueDate).slice(0,20) : null,
-      url: String(c.url||"").trim().slice(0,500) || null,
-      credentialId: String(c.credentialId||"").trim().slice(0,100) || null,
-    })).filter(c=>c.name);
-  }
-  if (updates.achievements !== undefined) {
-    if (!Array.isArray(updates.achievements)) return res.status(400).json({ message: "achievements must be array" });
-    updates.achievements = updates.achievements.slice(0,10).map(a=>({
-      title: String(a.title||"").trim().slice(0,120),
-      date: a.date ? String(a.date).slice(0,20) : null,
-      description: String(a.description||"").trim().slice(0,400) || null,
-      url: String(a.url||"").trim().slice(0,500) || null,
-    })).filter(a=>a.title);
-  }
-  if (updates.gallery !== undefined) {
-    if (!Array.isArray(updates.gallery)) return res.status(400).json({ message: "gallery must be array" });
-    updates.gallery = updates.gallery.map(s=>String(s).trim()).filter(Boolean).slice(0,6).map(s=>s.slice(0,500));
-  }
-  if (updates.preferences !== undefined) {
-    if (typeof updates.preferences !== "object" || Array.isArray(updates.preferences)) return res.status(400).json({ message: "preferences must be object" });
-    const p = updates.preferences;
-    const cur = {};
-    if (p.visibility !== undefined) {
-      if (!["public","connections","private"].includes(String(p.visibility))) return res.status(400).json({ message: "visibility invalid" });
-      cur.visibility = String(p.visibility);
-    }
-    if (p.showStatsOnPublic !== undefined) cur.showStatsOnPublic = Boolean(p.showStatsOnPublic);
-    if (p.showScheduledOnProfile !== undefined) cur.showScheduledOnProfile = Boolean(p.showScheduledOnProfile);
-    if (p.emailNotifications !== undefined) cur.emailNotifications = Boolean(p.emailNotifications);
-    // merge with existing preferences instead of replace
+  // handle preferences merge separately (validator returns _preferencesPatch)
+  if (updates._preferencesPatch !== undefined) {
+    const patch = updates._preferencesPatch;
+    delete updates._preferencesPatch;
+    delete updates.preferences;
     const { users: ucol } = getCollections();
     const existing = await ucol.findOne({ email: req.decoded.email });
-    updates.preferences = { ...(existing?.preferences || { visibility:"public", showStatsOnPublic:true, showScheduledOnProfile:false, emailNotifications:true }), ...cur };
+    updates.preferences = { ...(existing?.preferences || { visibility:"public", showStatsOnPublic:true, showScheduledOnProfile:false, emailNotifications:true }), ...patch };
   }
-  if (updates.orgName !== undefined) updates.orgName = String(updates.orgName).trim().slice(0, 120) || null;
-  if (updates.orgType !== undefined) {
-    updates.orgType = ["university", "college", "school"].includes(String(updates.orgType).toLowerCase())
-      ? String(updates.orgType).toLowerCase()
-      : "university";
-  }
-  if (updates.orgCountry !== undefined) updates.orgCountry = String(updates.orgCountry).trim().slice(0, 80) || null;
-  if (updates.orgWebsite !== undefined) updates.orgWebsite = String(updates.orgWebsite).trim().slice(0, 300) || null;
-  if (updates.orgDescription !== undefined) updates.orgDescription = String(updates.orgDescription).trim().slice(0, 2000) || null;
-  if (updates.orgFounded !== undefined) updates.orgFounded = updates.orgFounded ? Number(updates.orgFounded) : null;
-  if (updates.orgAccreditation !== undefined) updates.orgAccreditation = String(updates.orgAccreditation).trim().slice(0,120) || null;
-  if (updates.orgStudentCount !== undefined) updates.orgStudentCount = updates.orgStudentCount ? Number(updates.orgStudentCount) : null;
-  if (updates.orgFacultyCount !== undefined) updates.orgFacultyCount = updates.orgFacultyCount ? Number(updates.orgFacultyCount) : null;
-  if (updates.orgDepartments !== undefined) {
-    if (!Array.isArray(updates.orgDepartments)) return res.status(400).json({ message: "orgDepartments must be array" });
-    updates.orgDepartments = updates.orgDepartments.map(s=>String(s).trim()).filter(Boolean).slice(0,20);
-  }
-  if (updates.orgPrograms !== undefined) {
-    if (!Array.isArray(updates.orgPrograms)) return res.status(400).json({ message: "orgPrograms must be array" });
-    updates.orgPrograms = updates.orgPrograms.slice(0,20).map(p=>({
-      name: String(p.name||"").trim().slice(0,120),
-      level: String(p.level||"").trim().slice(0,40) || null,
-      duration: String(p.duration||"").trim().slice(0,40) || null,
-      seats: p.seats ? Number(p.seats) : null,
-    })).filter(p=>p.name);
-  }
-  if (updates.orgGallery !== undefined) {
-    if (!Array.isArray(updates.orgGallery)) return res.status(400).json({ message: "orgGallery must be array" });
-    updates.orgGallery = updates.orgGallery.map(s=>String(s).trim()).filter(Boolean).slice(0,6).map(s=>s.slice(0,500));
-  }
-  if (updates.orgVideoUrl !== undefined) updates.orgVideoUrl = String(updates.orgVideoUrl).trim().slice(0,500) || null;
-  if (updates.orgBrochureUrl !== undefined) updates.orgBrochureUrl = String(updates.orgBrochureUrl).trim().slice(0,500) || null;
-  if (updates.orgMapUrl !== undefined) updates.orgMapUrl = String(updates.orgMapUrl).trim().slice(0,500) || null;
-  if (updates.orgHighlights !== undefined) {
-    if (!Array.isArray(updates.orgHighlights)) return res.status(400).json({ message: "orgHighlights must be array" });
-    updates.orgHighlights = updates.orgHighlights.map(s=>String(s).trim()).filter(Boolean).slice(0,10);
-  }
+  // if preferences was empty object and no patch, remove stray
+  if (updates.preferences && updates._preferencesPatch === undefined && typeof updates.preferences === "object" && Object.keys(updates.preferences).length === 0) delete updates.preferences;
   if (Object.keys(updates).length === 0) return res.status(400).json({ message: "nothing to update" });
   updates.updatedAt = new Date();
   const { users } = getCollections();
