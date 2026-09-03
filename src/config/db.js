@@ -31,6 +31,7 @@ async function connect() {
     reviewHistory: db.collection("review_history"),
     institutionStudents: db.collection("institution_students"),
     follows: db.collection("follows"),
+    questions: db.collection("questions"),
   };
 
   await ensureIndexes();
@@ -39,7 +40,7 @@ async function connect() {
 }
 
 async function ensureIndexes() {
-  const { reviews, scholership, saved, inquiries, reviewHistory, users, apply, institutionStudents, follows } = collections;
+  const { reviews, scholership, saved, inquiries, reviewHistory, users, apply, institutionStudents, follows, questions } = collections;
 
   try {
     await reviews.createIndex({ reviewer_email: 1, scholarShip_id: 1 }, { unique: true, background: true });
@@ -86,6 +87,23 @@ async function ensureIndexes() {
     await follows.createIndex({ followerEmail: 1 }, { background: true });
   } catch (e) {
     console.log("user/apply/follow index warning", e.message);
+  }
+
+  // Q&A Forum V1 — Task 1: questions collection indexes
+  try {
+    await questions.createIndex({ category: 1 }, { background: true });
+    await questions.createIndex({ "context.destinationCountry": 1 }, { background: true });
+    await questions.createIndex({ "context.homeCountry": 1 }, { background: true });
+    await questions.createIndex({ "context.studyLevel": 1 }, { background: true });
+    await questions.createIndex({ authorEmail: 1, createdAt: -1 }, { background: true });
+    await questions.createIndex({ createdAt: -1 }, { background: true });
+    await questions.createIndex({ acceptedAnswerId: 1 }, { background: true, sparse: true });
+    await questions.createIndex(
+      { title: "text", body: "text", tags: "text" },
+      { background: true, name: "questions_text_idx" }
+    );
+  } catch (e) {
+    console.log("questions index warning", e.message);
   }
 }
 
