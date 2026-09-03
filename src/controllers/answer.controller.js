@@ -25,6 +25,11 @@ async function createAnswer(req, res) {
   const result = await answers.insertOne(doc);
   const inserted = await answers.findOne({ _id: result.insertedId });
 
+  // keep denormalized answerCount in sync for browse cards
+  try {
+    await questions.updateOne({ _id: qOid }, { $inc: { answerCount: 1 }, $set: { updatedAt: new Date() } });
+  } catch {}
+
   // Q7 resolved: sourceLink +3 immediate (if provided)
   if (inserted.sourceLink) {
     const recipient = await users.findOne({ email: String(author.email).toLowerCase() });

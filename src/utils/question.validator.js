@@ -77,6 +77,7 @@ function buildQuestionDoc({ payload, author }) {
     acceptedAnswerId: null,
     voteScore: 0,
     viewCount: 0,
+    answerCount: 0,
     upvoterIds: [],
   };
   return normalized;
