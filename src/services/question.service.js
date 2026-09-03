@@ -7,6 +7,9 @@ function escapeRegex(s) {
 function buildQuestionFilter(q) {
   const filter = {};
 
+  const authorEmail = String(q.authorEmail || q.author || "").trim().toLowerCase();
+  if (authorEmail) filter.authorEmail = authorEmail;
+
   const category = String(q.category || "").trim().toLowerCase();
   if (category) {
     // accept both slug and label — normalize to slug

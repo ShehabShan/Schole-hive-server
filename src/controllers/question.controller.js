@@ -3,6 +3,7 @@ const { getCollections } = require("../config/db");
 const { validateQuestionPayload, buildQuestionDoc } = require("../utils/question.validator");
 const { buildQuestionFilter, buildQuestionSort, normalizeQuestionPatch } = require("../services/question.service");
 const { parsePagination } = require("../utils/pagination");
+const { POINTS, applyReputation } = require("../utils/reputation");
 
 async function createQuestion(req, res) {
   const { valid, errors, data } = validateQuestionPayload(req.body || {});
@@ -115,4 +116,33 @@ async function deleteQuestion(req, res) {
   res.json({ message: "Question deleted", data: result });
 }
 
-module.exports = { createQuestion, listQuestions, getQuestionById, patchQuestion, deleteQuestion };
+async function upvoteQuestion(req, res) {
+  const id = req.params.id;
+  let oid;
+  try { oid = new ObjectId(id); } catch { return res.status(400).json({ message: "invalid id" }); }
+  const { questions, users } = getCollections();
+  const question = await questions.findOne({ _id: oid });
+  if (!question) return res.status(404).json({ message: "Question not found" });
+  const voterEmail = String(req.authUser?.email || req.decoded?.email || "").toLowerCase();
+  if (!voterEmail) return res.status(401).json({ message: "unauthorized" });
+  if (String(question.authorEmail||"").toLowerCase()===voterEmail) return res.status(400).json({ message: "cannot vote own question" });
+  const upvoters = Array.isArray(question.upvoterIds) ? question.upvoterIds.map(String) : [];
+  if (upvoters.includes(voterEmail)) return res.status(409).json({ message: "already voted" });
+  await questions.updateOne({ _id: oid }, { $inc: { voteScore: 1 }, $push: { upvoterIds: voterEmail }, $set: { updatedAt: new Date() } });
+  const recipient = await users.findOne({ email: String(question.authorEmail).toLowerCase() });
+  if (recipient) {
+    await applyReputation(getCollections(), {
+      userId: recipient._id,
+      userEmail: recipient.email,
+      type: "questionUpvote",
+      points: POINTS.questionUpvote,
+      relatedQuestionId: oid,
+      relatedAnswerId: null,
+    });
+  }
+  const updated = await questions.findOne({ _id: oid });
+  const repUser = recipient ? await users.findOne({ _id: recipient._id }) : null;
+  res.json({ message: "upvoted", data: updated, reputation: repUser?.reputation });
+}
+
+module.exports = { createQuestion, listQuestions, getQuestionById, patchQuestion, deleteQuestion, upvoteQuestion };

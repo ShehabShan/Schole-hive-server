@@ -13,6 +13,9 @@ router.get("/questions/:id", asyncHandler(c.getQuestionById));
 // create — any authenticated role per Q1 resolved (open to all auth roles)
 router.post("/questions", verifyToken, loadAuthUser, asyncHandler(c.createQuestion));
 
+// voting — question upvote (+2)
+router.post("/questions/:id/upvote", verifyToken, loadAuthUser, asyncHandler(c.upvoteQuestion));
+
 // update / delete — owner or staff (checked in controller)
 router.patch("/questions/:id", verifyToken, loadAuthUser, asyncHandler(c.patchQuestion));
 router.delete("/questions/:id", verifyToken, loadAuthUser, asyncHandler(c.deleteQuestion));
