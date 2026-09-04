@@ -4,6 +4,7 @@ const cors = require("cors");
 const cookieParser = require("cookie-parser");
 const securityHeaders = require("./middleware/security");
 const { globalRateLimit } = require("./middleware/rateLimit");
+const cache = require("./utils/cache");
 const { errorHandler, notFound } = require("./middleware/errorHandler");
 const { connect } = require("./config/db");
 
@@ -50,6 +51,7 @@ function createApp() {
   app.use(securityHeaders);
   app.use(globalRateLimit);
   app.use(ensureDb);
+  app.use(cache.middleware(30 * 1000));
 
   // health
   app.get("/", (req, res) => res.send("School Hive server is running"));
