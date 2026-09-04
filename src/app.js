@@ -1,4 +1,5 @@
 const express = require("express");
+const compression = require("compression");
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
 const securityHeaders = require("./middleware/security");
@@ -42,6 +43,7 @@ function createApp() {
       credentials: true,
     })
   );
+  app.use(compression({ threshold: 1024, level: 6 }));
   app.use(express.json({ limit: "100kb" }));
   app.use(cookieParser());
   app.use(securityHeaders);
