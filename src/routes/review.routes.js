@@ -10,6 +10,7 @@ const router = express.Router();
 router.post("/addReviews", verifyToken, loadAuthUser, asyncHandler(c.createReview));
 router.get("/allReviews", verifyToken, loadAuthUser, asyncHandler(c.listReviews));
 router.get("/allReviews/:id", asyncHandler(c.getReviewsByScholarship));
+router.post("/allReviews/:id/helpful", verifyToken, loadAuthUser, asyncHandler(c.toggleReviewHelpful));
 router.delete("/allReviews/:id", verifyToken, loadAuthUser, asyncHandler(c.deleteReview));
 router.patch("/allReviews/:id", verifyToken, loadAuthUser, asyncHandler(c.patchReview));
 router.patch("/allReviews/:id/moderate", verifyToken, loadAuthUser, verifyModaretor, asyncHandler(c.moderateReview));

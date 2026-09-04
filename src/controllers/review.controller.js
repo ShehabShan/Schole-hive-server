@@ -57,6 +57,33 @@ async function createReview(req, res) {
   }
 }
 
+function shapeReview(r, voterEmail) {
+  const helpful = Array.isArray(r.helpfulEmails) ? r.helpfulEmails : [];
+  const { helpfulEmails, ...rest } = r;
+  return {
+    ...rest,
+    helpfulCount: helpful.length,
+    ...(voterEmail ? { helpfulVoted: helpful.map((e) => String(e).toLowerCase()).includes(String(voterEmail).toLowerCase()) } : {}),
+  };
+}
+
+async function toggleReviewHelpful(req, res) {
+  const oid = new ObjectId(req.params.id);
+  const { reviews } = getCollections();
+  const review = await reviews.findOne({ _id: oid });
+  if (!review) return res.status(404).json({ message: "Review not found" });
+  if (String(review.reviewer_email).toLowerCase() === String(req.decoded.email).toLowerCase()) {
+    return res.status(403).json({ message: "cannot vote own review" });
+  }
+  const voted = (review.helpfulEmails || []).map((e) => String(e).toLowerCase()).includes(String(req.decoded.email).toLowerCase());
+  const update = voted
+    ? { $pull: { helpfulEmails: req.decoded.email } }
+    : { $addToSet: { helpfulEmails: req.decoded.email } };
+  await reviews.updateOne({ _id: oid }, update);
+  const count = Math.max(0, (review.helpfulEmails || []).length + (voted ? -1 : 1));
+  res.status(200).json({ message: voted ? "helpful vote removed" : "marked as helpful", data: { helpfulCount: count, voted: !voted } });
+}
+
 async function listReviews(req, res) {
   const { email: queryEmail, status, scholarShip_id, q, page = "1", limit = "50" } = req.query;
   const role = req.authUser?.role;
@@ -85,7 +112,7 @@ async function listReviews(req, res) {
   for (const item of reviewResult) { try { validIds.push(new ObjectId(item.scholarShip_id)); } catch {} }
   const reviewDetails = validIds.length ? await scholership.find({ _id: { $in: validIds } }).toArray() : [];
   const detailById = new Map(reviewDetails.map((d) => [String(d._id), d]));
-  const combineResult = reviewResult.map((r) => ({ ...r, scholership_details: detailById.get(String(r.scholarShip_id)) || null }));
+  const combineResult = reviewResult.map((r) => ({ ...shapeReview(r), scholership_details: detailById.get(String(r.scholarShip_id)) || null }));
   res.status(200).json({ message: "All review get successfully", data: combineResult });
 }
 
@@ -99,7 +126,8 @@ async function getReviewsByScholarship(req, res) {
   for (const item of reviewResult) { try { validIds.push(new ObjectId(item.scholarShip_id)); } catch {} }
   const reviewDetails = validIds.length ? await scholership.find({ _id: { $in: validIds } }).toArray() : [];
   const detailById = new Map(reviewDetails.map((d) => [String(d._id), d]));
-  const combineResult = reviewResult.map((r) => ({ ...r, scholership_details: detailById.get(String(r.scholarShip_id)) || null }));
+  const voterEmail = req.query.voterEmail ? String(req.query.voterEmail) : null;
+  const combineResult = reviewResult.map((r) => ({ ...shapeReview(r, voterEmail), scholership_details: detailById.get(String(r.scholarShip_id)) || null }));
   const total = await reviews.countDocuments(query);
   const totalPages = Math.max(1, Math.ceil(total / limQ));
   res.status(200).json({ message: "All review get successfully", data: combineResult, total, page: pgQ, totalPages });
@@ -242,4 +270,4 @@ async function getReviewStats(req, res) {
   res.json({ total, pending, approved, rejected, hidden, removed });
 }
 
-module.exports = { createReview, listReviews, getReviewsByScholarship, deleteReview, patchReview, moderateReview, getReviewHistory, getRemovedReviews, getReviewStats };
+module.exports = { createReview, listReviews, getReviewsByScholarship, deleteReview, patchReview, moderateReview, getReviewHistory, getRemovedReviews, getReviewStats, toggleReviewHelpful };
