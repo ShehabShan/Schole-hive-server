@@ -8,6 +8,16 @@ which is the master narrative — keep the two consistent.
 
 ---
 
+## 2026-09-04 — DEPLOY perf/optimization to production (user approved)
+
+**What was done**
+- Merged 7 server `perf/*` branches into `perf/optimization` (`8f01762` tip) and deployed via `DEPLOY_APPROVED=yes ./scripts/deploy.sh` (question tool "Deploy approved"):
+  - `npx vercel --prod` → `https://server-six-vert.vercel.app` `15s` `Aliased server-six-vert.vercel.app` `Server OK`.
+  - Client `VITE_server_url` build + `firebase deploy` → `https://scholarhive-913e4.web.app` 99 files `release complete`.
+- Cumulative perf: pagination 20/50, compression gzip, 9 indexes, Promise.all stats, aggregate/bulkWrite, async jwt+HSTS+global limit, 30s LRU cache. Report `docs/PERFORMANCE_REPORT.md`.
+
+---
+
 ## 2026-09-03 — Q&A redesign: answerCount denormalization (feature/qa-redesign, `01bce5d`)
 
 **What was done**
