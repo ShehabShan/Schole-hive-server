@@ -8,7 +8,9 @@ which is the master narrative — keep the two consistent.
 
 ---
 
-## 2026-09-04 — Remove question comment system (answers-only model) — `feature/subfeatures`, NOT deployed
+## 2026-09-04 — Remove question comment system (answers-only model) — DEPLOYED
+
+> **DEPLOYED 2026-09-04** (owner approved): merged to main (`dd7fe3c..5b2c4e1`), pushed (auto-deploy) + verified via `./scripts/deploy.sh` pass — `GET /questions/:id/comments` → 404 on production.
 
 ### DONE
 - `3744e08` removed `GET/POST /questions/:id/comments` routes, `createQuestionComment`/`listQuestionComments` (+ their `question_comment`/`comment_reply` notification emits), `utils/comment.validator.js`, and the `question_comments` collection mapping/index block in `db.js`.
