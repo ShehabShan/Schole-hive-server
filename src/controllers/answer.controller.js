@@ -2,6 +2,26 @@ const { ObjectId } = require("mongodb");
 const { getCollections } = require("../config/db");
 const { validateAnswerPayload, buildAnswerDoc } = require("../utils/answer.validator");
 const { POINTS, applyReputation } = require("../utils/reputation");
+const { parsePagination } = require("../utils/pagination");
+
+async function listAnswersByAuthor(req, res) {
+  const raw = String(req.query.authorEmail || req.query.email || "").trim().toLowerCase();
+  if (!raw || !raw.includes("@")) return res.status(400).json({ message: "authorEmail query required (email)" });
+  const { questions, answers } = getCollections();
+  const filter = { authorEmail: raw };
+  const { page, limit, skip } = parsePagination(req.query, { page: 1, limit: 12, maxLimit: 50 });
+  const total = await answers.countDocuments(filter);
+  const data = await answers.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).toArray();
+  // attach question title for snippet header
+  const qIds = [...new Set(data.map((a) => String(a.questionId)).filter(Boolean))].map((id) => { try { return new ObjectId(id); } catch { return null; } }).filter(Boolean);
+  let qMap = {};
+  if (qIds.length) {
+    const qs = await questions.find({ _id: { $in: qIds } }, { projection: { title: 1 } }).toArray();
+    qMap = Object.fromEntries(qs.map((q) => [String(q._id), q.title]));
+  }
+  const enriched = data.map((a) => ({ ...a, questionTitle: qMap[String(a.questionId)] || null }));
+  res.json({ message: "answers fetched", data: enriched, total, page, totalPages: Math.max(1, Math.ceil(total / limit)) });
+}
 
 async function createAnswer(req, res) {
   const qid = req.params.id;
@@ -198,4 +218,4 @@ async function downvoteAnswer(req, res) {
   res.json({ message: "downvoted", data: updated });
 }
 
-module.exports = { createAnswer, acceptAnswer, upvoteAnswer, downvoteAnswer };
+module.exports = { createAnswer, acceptAnswer, upvoteAnswer, downvoteAnswer, listAnswersByAuthor };

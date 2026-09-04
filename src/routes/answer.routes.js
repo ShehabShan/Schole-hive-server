@@ -6,6 +6,9 @@ const c = require("../controllers/answer.controller");
 
 const router = express.Router();
 
+// list answers by author — public, paginated (for profile Answers tab)
+router.get("/answers", asyncHandler(c.listAnswersByAuthor));
+
 // create answer for a question — any authenticated role (Q1)
 router.post("/questions/:id/answers", verifyToken, loadAuthUser, asyncHandler(c.createAnswer));
 
