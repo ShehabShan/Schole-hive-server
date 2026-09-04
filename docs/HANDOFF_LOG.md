@@ -8,6 +8,17 @@ which is the master narrative — keep the two consistent.
 
 ---
 
+## 2026-09-04 — Remove question comment system (answers-only model) — `feature/subfeatures`, NOT deployed
+
+### DONE
+- `3744e08` removed `GET/POST /questions/:id/comments` routes, `createQuestionComment`/`listQuestionComments` (+ their `question_comment`/`comment_reply` notification emits), `utils/comment.validator.js`, and the `question_comments` collection mapping/index block in `db.js`.
+- Owner decision: `question_comments` **data left in Mongo** (recoverable for the future comments-under-answers feature, client backlog B2). Spec §1.4: clarifications belong under answers, not a wall on the question.
+
+### LEFT
+- Merge to main + deploy needs owner approval (main auto-deploys). Until then the old endpoints still respond on prod but no client UI calls them.
+
+---
+
 ## 2026-09-04 — Sub-feature waves W1–W10 (branch `feature/subfeatures`) — DEPLOYED
 
 > **Deployed to production 2026-09-04** (owner approved): merged fast-forward to `main` (`0ce9787..d7eab02`), pushed, deployed via `./scripts/deploy.sh` from the client repo (+ one `vercel --prod` fallback when the GitHub auto-deploy didn't trigger). Live checks: `/notifications/me` 401 gate, `/questions/:id/follow` responds, `/users/export` 401 gate.
