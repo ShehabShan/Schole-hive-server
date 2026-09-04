@@ -163,6 +163,7 @@ function validateProfilePatch(body) {
       }
       if (p.showStatsOnPublic !== undefined) cur.showStatsOnPublic = Boolean(p.showStatsOnPublic);
       if (p.showScheduledOnProfile !== undefined) cur.showScheduledOnProfile = Boolean(p.showScheduledOnProfile);
+      if (p.showFollowersOnPublic !== undefined) cur.showFollowersOnPublic = Boolean(p.showFollowersOnPublic);
       if (p.emailNotifications !== undefined) cur.emailNotifications = Boolean(p.emailNotifications);
       updates._preferencesPatch = cur;
     }

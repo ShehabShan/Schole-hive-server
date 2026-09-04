@@ -129,6 +129,7 @@ async function createUser(req, res) {
       visibility: ["public","connections","private"].includes(String(incoming.preferences?.visibility)) ? incoming.preferences.visibility : "public",
       showStatsOnPublic: incoming.preferences?.showStatsOnPublic !== false,
       showScheduledOnProfile: Boolean(incoming.preferences?.showScheduledOnProfile),
+      showFollowersOnPublic: incoming.preferences?.showFollowersOnPublic !== false,
       emailNotifications: incoming.preferences?.emailNotifications !== false,
     },
     followersCount: 0,
@@ -283,8 +284,8 @@ function pickPublic(u) {
     videoIntro: u.videoIntro,
     preferences: u.preferences,
     completeness: u.completeness,
-    followersCount: u.followersCount || 0,
-    followingCount: u.followingCount || 0,
+    followersCount: u.preferences?.showFollowersOnPublic === false ? undefined : (u.followersCount || 0),
+    followingCount: u.preferences?.showFollowersOnPublic === false ? undefined : (u.followingCount || 0),
     orgName: u.orgName,
     orgType: u.orgType,
     orgCountry: u.orgCountry,
@@ -399,8 +400,11 @@ async function getPublicStats(req, res) {
       const agg = await reviews.aggregate([{ $match: { reviewer_email: email, status: "approved" } }, { $group: { _id: null, avg: { $avg: "$rating" } } }]).toArray();
       if (agg[0]) avgRating = Number(agg[0].avg.toFixed(1));
     }
-    const followers = await follows.countDocuments({ followingEmail: email });
-    const following = await follows.countDocuments({ followerEmail: email });
+    let followers = 0, following = 0;
+    if (u.preferences?.showFollowersOnPublic !== false) {
+      followers = await follows.countDocuments({ followingEmail: email });
+      following = await follows.countDocuments({ followerEmail: email });
+    }
     res.json({ message: "public stats", data: { applications, reviews: reviewsCount, saved: savedCount, scholarshipsCreated, avgRating, studentsCount, followers, following, completeness: u.completeness || computeCompleteness(u) } });
   } catch (e) {
     res.status(500).json({ message: "stats error", error: e.message });
@@ -457,7 +461,7 @@ async function patchMe(req, res) {
     delete updates.preferences;
     const { users: ucol } = getCollections();
     const existing = await ucol.findOne({ email: req.decoded.email });
-    updates.preferences = { ...(existing?.preferences || { visibility:"public", showStatsOnPublic:true, showScheduledOnProfile:false, emailNotifications:true }), ...patch };
+    updates.preferences = { ...(existing?.preferences || { visibility:"public", showStatsOnPublic:true, showScheduledOnProfile:false, showFollowersOnPublic:true, emailNotifications:true }), ...patch };
   }
   // if preferences was empty object and no patch, remove stray
   if (updates.preferences && updates._preferencesPatch === undefined && typeof updates.preferences === "object" && Object.keys(updates.preferences).length === 0) delete updates.preferences;
@@ -571,7 +575,11 @@ async function toggleFollow(req, res) {
 async function getFollowers(req, res) {
   const email = String(req.params.email || "").toLowerCase().trim();
   if (!email.includes("@")) return res.status(400).json({ message: "valid email required" });
-  const { follows } = getCollections();
+  const { users, follows } = getCollections();
+  const u = await users.findOne({ email });
+  if (u?.preferences?.showFollowersOnPublic === false) {
+    return res.json({ message: "follow data hidden", data: { followers: [], following: [], followersCount: 0, followingCount: 0, hidden: true } });
+  }
   const followers = await follows.find({ followingEmail: email }).sort({ createdAt: -1 }).limit(100).toArray();
   const following = await follows.find({ followerEmail: email }).sort({ createdAt: -1 }).limit(100).toArray();
   res.json({ message: "follow data", data: { followers, following, followersCount: followers.length, followingCount: following.length } });
