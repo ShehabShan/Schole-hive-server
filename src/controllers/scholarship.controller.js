@@ -1,6 +1,7 @@
 const { ObjectId } = require("mongodb");
 const { getCollections } = require("../config/db");
 const { buildScholarshipFilter, buildScholarshipSort, normalizeScholarshipDoc, normalizeScholarshipPatch } = require("../services/scholarship.service");
+const { parsePagination } = require("../utils/pagination");
 
 async function listScholarships(req, res) {
   const { scholership } = getCollections();
@@ -20,17 +21,10 @@ async function listScholarships(req, res) {
       }
     } catch {}
   }
-  const hasPaging = req.query.page !== undefined || req.query.limit !== undefined;
   const filter = buildScholarshipFilter(req.query);
   const sort = buildScholarshipSort(req.query.sort);
+  const { page, limit, skip } = parsePagination(req.query, { page: 1, limit: 20, maxLimit: 50 });
   const total = await scholership.countDocuments(filter);
-  if (!hasPaging) {
-    const data = await scholership.find(filter).sort(sort).toArray();
-    return res.status(200).json({ message: "allScholarship fetching successfull", data, total, page: 1, totalPages: 1 });
-  }
-  const page = Math.max(1, parseInt(String(req.query.page || "1"), 10) || 1);
-  const limit = Math.min(50, Math.max(1, parseInt(String(req.query.limit || "12"), 10) || 12));
-  const skip = (page - 1) * limit;
   const data = await scholership.find(filter).sort(sort).skip(skip).limit(limit).toArray();
   const totalPages = Math.max(1, Math.ceil(total / limit));
   res.status(200).json({ message: "allScholarship fetching successfull", data, total, page, totalPages });

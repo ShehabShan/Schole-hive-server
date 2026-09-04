@@ -92,14 +92,17 @@ async function listReviews(req, res) {
 async function getReviewsByScholarship(req, res) {
   const id = req.params.id;
   const query = { scholarShip_id: String(id), status: "approved" };
+  const { page: pgQ, limit: limQ, skip: skipQ } = require("../utils/pagination").parsePagination(req.query || {}, { page: 1, limit: 20, maxLimit: 50 });
   const { reviews, scholership } = getCollections();
-  const reviewResult = await reviews.find(query).sort({ createdAt: -1 }).toArray();
+  const reviewResult = await reviews.find(query).sort({ createdAt: -1 }).skip(skipQ).limit(limQ).toArray();
   const validIds = [];
   for (const item of reviewResult) { try { validIds.push(new ObjectId(item.scholarShip_id)); } catch {} }
   const reviewDetails = validIds.length ? await scholership.find({ _id: { $in: validIds } }).toArray() : [];
   const detailById = new Map(reviewDetails.map((d) => [String(d._id), d]));
   const combineResult = reviewResult.map((r) => ({ ...r, scholership_details: detailById.get(String(r.scholarShip_id)) || null }));
-  res.status(200).json({ message: "All review get successfully", data: combineResult });
+  const total = await reviews.countDocuments(query);
+  const totalPages = Math.max(1, Math.ceil(total / limQ));
+  res.status(200).json({ message: "All review get successfully", data: combineResult, total, page: pgQ, totalPages });
 }
 
 async function deleteReview(req, res) {
@@ -212,14 +215,18 @@ async function moderateReview(req, res) {
 
 async function getReviewHistory(req, res) {
   const { reviewHistory } = getCollections();
-  const data = await reviewHistory.find({ reviewId: String(req.params.id) }).sort({ at: -1 }).toArray();
-  res.json({ data });
+  const { page, limit, skip } = require("../utils/pagination").parsePagination(req.query || {}, { page: 1, limit: 20, maxLimit: 50 });
+  const total = await reviewHistory.countDocuments({ reviewId: String(req.params.id) });
+  const data = await reviewHistory.find({ reviewId: String(req.params.id) }).sort({ at: -1 }).skip(skip).limit(limit).toArray();
+  res.json({ data, total, page, totalPages: Math.max(1, Math.ceil(total / limit)) });
 }
 
 async function getRemovedReviews(req, res) {
   const { reviews } = getCollections();
-  const data = await reviews.find({ status: "removed" }).sort({ removedAt: -1 }).limit(100).toArray();
-  res.json({ data });
+  const { page, limit, skip } = require("../utils/pagination").parsePagination(req.query || {}, { page: 1, limit: 20, maxLimit: 50 });
+  const total = await reviews.countDocuments({ status: "removed" });
+  const data = await reviews.find({ status: "removed" }).sort({ removedAt: -1 }).skip(skip).limit(limit).toArray();
+  res.json({ data, total, page, totalPages: Math.max(1, Math.ceil(total / limit)) });
 }
 
 async function getReviewStats(req, res) {

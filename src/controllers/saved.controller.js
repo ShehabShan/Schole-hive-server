@@ -24,14 +24,18 @@ async function getSaved(req, res) {
   const role = req.authUser?.role;
   const isStaff = role === "admin" || role === "superadmin" || role === "modaretor";
   if (email !== String(req.decoded.email).toLowerCase() && !isStaff) return res.status(403).json({ message: "forbidden" });
+  const { parsePagination } = require("../utils/pagination");
+  const { page, limit, skip } = parsePagination(req.query, { page: 1, limit: 20, maxLimit: 50 });
   const { saved, scholership } = getCollections();
-  const docs = await saved.find({ userEmail: email }).sort({ savedAt: -1 }).toArray();
+  const filter = { userEmail: email };
+  const total = await saved.countDocuments(filter);
+  const docs = await saved.find(filter).sort({ savedAt: -1 }).skip(skip).limit(limit).toArray();
   const ids = [];
   for (const d of docs) { try { ids.push(new ObjectId(d.scholarshipId)); } catch {} }
   const scholarships = ids.length ? await scholership.find({ _id: { $in: ids } }).toArray() : [];
   const byId = new Map(scholarships.map((s) => [String(s._id), s]));
   const data = docs.map((d) => ({ ...d, scholarship: byId.get(String(d.scholarshipId)) || null }));
-  res.json({ message: "saved fetched", data });
+  res.json({ message: "saved fetched", data, total, page, totalPages: Math.max(1, Math.ceil(total / limit)) });
 }
 
 async function deleteSaved(req, res) {

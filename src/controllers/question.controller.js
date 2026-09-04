@@ -48,10 +48,12 @@ async function getQuestionById(req, res) {
     question.viewCount = (question.viewCount || 0) + 1;
   } catch {}
 
-  const answersList = await answers.find({ questionId: oid }).sort({ accepted: -1, voteScore: -1, createdAt: 1 }).toArray();
+  const { page: ansPage, limit: ansLimit, skip: ansSkip } = parsePagination(req.query, { page: 1, limit: 20, maxLimit: 50 });
+  const ansTotal = await answers.countDocuments({ questionId: oid });
+  const answersList = await answers.find({ questionId: oid }).sort({ accepted: -1, voteScore: -1, createdAt: 1 }).skip(ansSkip).limit(ansLimit).toArray();
   const acceptedAnswer = answersList.find((a) => a.accepted) || null;
 
-  res.json({ message: "question fetched", data: { ...question, answers: answersList, acceptedAnswer } });
+  res.json({ message: "question fetched", data: { ...question, answers: answersList, acceptedAnswer, ansTotal, ansPage, ansTotalPages: Math.max(1, Math.ceil(ansTotal / ansLimit)) } });
 }
 
 async function patchQuestion(req, res) {

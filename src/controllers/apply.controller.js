@@ -1,5 +1,6 @@
 const { ObjectId } = require("mongodb");
 const { getCollections } = require("../config/db");
+const { parsePagination } = require("../utils/pagination");
 
 function canAccessApplication(req, doc, scholarship) {
   const role = req.authUser?.role;
@@ -32,9 +33,12 @@ async function getApply(req, res) {
   if (!email) return res.status(400).json({ message: "email query required" });
   const isStaff = ["admin", "superadmin", "modaretor"].includes(req.authUser?.role);
   if (email !== String(req.decoded.email).toLowerCase() && !isStaff) return res.status(403).json({ message: "forbidden: can only view own applications" });
+  const { page, limit, skip } = parsePagination(req.query, { page: 1, limit: 20, maxLimit: 50 });
   const { apply } = getCollections();
-  const result = await apply.find({ email }).sort({ postDate: -1 }).toArray();
-  res.status(200).json({ message: "apply data added successfully", data: result });
+  const filter = { email };
+  const total = await apply.countDocuments(filter);
+  const result = await apply.find(filter).sort({ postDate: -1 }).skip(skip).limit(limit).toArray();
+  res.status(200).json({ message: "apply data added successfully", data: result, total, page, totalPages: Math.max(1, Math.ceil(total / limit)) });
 }
 
 async function getAllApply(req, res) {
@@ -47,8 +51,10 @@ async function getAllApply(req, res) {
     const ids = owned.map((s) => String(s._id));
     filter = ids.length ? { scholarship_id: { $in: ids } } : { scholarship_id: "__none__" };
   } else filter = { email: req.decoded.email };
-  const result = await apply.find(filter).sort({ postDate: -1 }).toArray();
-  res.status(200).json({ message: "apply data added successfully", data: result });
+  const { page, limit, skip } = parsePagination(req.query, { page: 1, limit: 20, maxLimit: 50 });
+  const total = await apply.countDocuments(filter);
+  const result = await apply.find(filter).sort({ postDate: -1 }).skip(skip).limit(limit).toArray();
+  res.status(200).json({ message: "apply data added successfully", data: result, total, page, totalPages: Math.max(1, Math.ceil(total / limit)) });
 }
 
 async function getSingleApply(req, res) {
