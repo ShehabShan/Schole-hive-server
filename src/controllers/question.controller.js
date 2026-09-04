@@ -1,7 +1,6 @@
 const { ObjectId } = require("mongodb");
 const { getCollections } = require("../config/db");
 const { validateQuestionPayload, buildQuestionDoc } = require("../utils/question.validator");
-const { validateCommentPayload, buildCommentDoc } = require("../utils/comment.validator");
 const { buildQuestionFilter, buildQuestionSort, normalizeQuestionPatch } = require("../services/question.service");
 const { parsePagination } = require("../utils/pagination");
 const { POINTS, applyReputation } = require("../utils/reputation");
@@ -171,60 +170,6 @@ async function downvoteQuestion(req, res) {
   res.json({ message: "downvoted", data: updated });
 }
 
-async function createQuestionComment(req, res) {
-  const id = req.params.id;
-  let qOid;
-  try { qOid = new ObjectId(id); } catch { return res.status(400).json({ message: "invalid question id" }); }
-  const { questions, questionComments } = getCollections();
-  const question = await questions.findOne({ _id: qOid });
-  if (!question) return res.status(404).json({ message: "Question not found" });
-  const { valid, errors, data } = validateCommentPayload(req.body || {});
-  if (!valid) return res.status(400).json({ message: "validation failed", errors });
-  let parentAuthorEmail = null;
-  if (data.parentCommentId) {
-    const parent = await questionComments.findOne({ _id: new ObjectId(data.parentCommentId), questionId: qOid });
-    if (!parent) return res.status(404).json({ message: "Parent comment not found" });
-    parentAuthorEmail = parent.authorEmail || null;
-  }
-  const author = req.authUser || { email: req.decoded?.email, role: "user" };
-  if (!author.email && req.decoded?.email) author.email = req.decoded.email;
-  const doc = buildCommentDoc({ payload: data, questionId: qOid, author });
-  if (author._id) doc.authorId = author._id;
-  const result = await questionComments.insertOne(doc);
-  const inserted = await questionComments.findOne({ _id: result.insertedId });
-
-  // notify the asker about the new comment (and the parent-comment author on replies)
-  await createNotification({
-    recipientEmail: question.authorEmail,
-    type: "question_comment",
-    actorEmail: author.email,
-    payload: { questionId: String(qOid), commentId: String(inserted._id), questionTitle: question.title },
-  });
-  if (data.parentCommentId && parentAuthorEmail) {
-    await createNotification({
-      recipientEmail: parentAuthorEmail,
-      type: "comment_reply",
-      actorEmail: author.email,
-      payload: { questionId: String(qOid), commentId: String(inserted._id), questionTitle: question.title },
-    });
-  }
-
-  res.status(201).json({ message: "Comment created", data: inserted });
-}
-
-async function listQuestionComments(req, res) {
-  const id = req.params.id;
-  let qOid;
-  try { qOid = new ObjectId(id); } catch { return res.status(400).json({ message: "invalid question id" }); }
-  const { questions, questionComments } = getCollections();
-  const question = await questions.findOne({ _id: qOid });
-  if (!question) return res.status(404).json({ message: "Question not found" });
-  const { page, limit, skip } = parsePagination(req.query, { page: 1, limit: 20, maxLimit: 50 });
-  const total = await questionComments.countDocuments({ questionId: qOid });
-  const data = await questionComments.find({ questionId: qOid }).sort({ createdAt: 1 }).skip(skip).limit(limit).toArray();
-  res.json({ message: "comments fetched", data, total, page, totalPages: Math.max(1, Math.ceil(total / limit)) });
-}
-
 async function getQuestionFollow(req, res) {
   let oid;
   try { oid = new ObjectId(req.params.id); } catch { return res.status(400).json({ message: "invalid question id" }); }
@@ -271,4 +216,4 @@ async function unfollowQuestion(req, res) {
   res.json({ message: "unfollowed", data: { following: false, followersCount: Array.isArray(q?.followerEmails) ? q.followerEmails.length : 0, matched: result.matchedCount } });
 }
 
-module.exports = { createQuestion, listQuestions, getQuestionById, patchQuestion, deleteQuestion, upvoteQuestion, downvoteQuestion, createQuestionComment, listQuestionComments, getQuestionFollow, toggleQuestionFollow, unfollowQuestion };
+module.exports = { createQuestion, listQuestions, getQuestionById, patchQuestion, deleteQuestion, upvoteQuestion, downvoteQuestion, getQuestionFollow, toggleQuestionFollow, unfollowQuestion };

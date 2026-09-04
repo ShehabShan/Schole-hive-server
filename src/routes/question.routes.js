@@ -17,10 +17,6 @@ router.post("/questions", verifyToken, loadAuthUser, asyncHandler(c.createQuesti
 router.post("/questions/:id/upvote", verifyToken, loadAuthUser, asyncHandler(c.upvoteQuestion));
 router.post("/questions/:id/downvote", verifyToken, loadAuthUser, asyncHandler(c.downvoteQuestion));
 
-// inline question comments (new mechanic distinct from answers)
-router.get("/questions/:id/comments", asyncHandler(c.listQuestionComments));
-router.post("/questions/:id/comments", verifyToken, loadAuthUser, asyncHandler(c.createQuestionComment));
-
 // question following (watchlist)
 router.get("/questions/:id/follow", asyncHandler(c.getQuestionFollow));
 router.post("/questions/:id/follow", verifyToken, loadAuthUser, asyncHandler(c.toggleQuestionFollow));

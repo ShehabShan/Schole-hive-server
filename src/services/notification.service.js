@@ -1,6 +1,6 @@
 const { getCollections } = require("../config/db");
 
-// Types: question_answered | answer_accepted | question_comment | comment_reply | question_followed
+// Types: question_answered | answer_accepted | question_followed
 // Never throws — notification failures must not break the parent action.
 async function createNotification({ recipientEmail, type, actorEmail = null, payload = {} }) {
   try {
