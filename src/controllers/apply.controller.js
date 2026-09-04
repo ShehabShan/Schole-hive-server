@@ -24,7 +24,11 @@ async function findApplyScholarship(doc) {
 async function createApply(req, res) {
   if (req.authUser?.role !== "user") return res.status(403).json({ message: "forbidden: only students can apply" });
   const { apply } = getCollections();
-  const result = await apply.insertOne(req.body);
+  const doc = {
+    ...req.body,
+    statusHistory: [{ status: "pending", at: new Date().toISOString(), by: req.decoded?.email || null }],
+  };
+  const result = await apply.insertOne(doc);
   res.status(201).json({ message: "apply data added successfully", data: result });
 }
 
@@ -66,13 +70,23 @@ async function getSingleApply(req, res) {
   res.status(200).json({ message: "apply data added successfully", data: result });
 }
 
+async function pushStatusEvent(apply, id, status, by) {
+  return apply.updateOne(
+    { _id: new ObjectId(id) },
+    {
+      $set: { applicationStatus: status },
+      $push: { statusHistory: { status, at: new Date().toISOString(), by: by || null } },
+    }
+  );
+}
+
 async function cancelApply(req, res) {
   const { apply } = getCollections();
   const doc = await apply.findOne({ _id: new ObjectId(req.params.id) });
   if (!doc) return res.status(404).json({ message: "application not found" });
   const scholarship = await findApplyScholarship(doc);
   if (!canAccessApplication(req, doc, scholarship)) return res.status(403).json({ message: "forbidden" });
-  const result = await apply.updateOne({ _id: new ObjectId(req.params.id) }, { $set: { applicationStatus: "rejected" } });
+  const result = await pushStatusEvent(apply, req.params.id, "rejected", req.decoded?.email);
   res.status(201).json({ message: "apply data added successfully", data: result });
 }
 
@@ -84,7 +98,7 @@ async function acceptApply(req, res) {
   const isStaff = ["admin", "superadmin", "modaretor"].includes(role);
   const isOwnInstitution = role === "institution" && req.authUser?.status === "approved" && canAccessApplication(req, doc, await findApplyScholarship(doc));
   if (!isStaff && !isOwnInstitution) return res.status(403).json({ message: "forbidden" });
-  const result = await apply.updateOne({ _id: new ObjectId(req.params.id) }, { $set: { applicationStatus: "accepted" } });
+  const result = await pushStatusEvent(apply, req.params.id, "accepted", req.decoded?.email);
   res.status(201).json({ message: "apply data added successfully", data: result });
 }
 
