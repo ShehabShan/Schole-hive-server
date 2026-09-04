@@ -9,6 +9,8 @@ History: `docs/TASK_HISTORY.md` · Narrative: `docs/HANDOFF_LOG.md` · Deploy: `
 
 ## IN PROGRESS
 
+- **Sub-feature waves W1–W10 (feature/subfeatures)** — client-driven; all server parts done on `feature/subfeatures` (pushed): apply `statusHistory` `134e8e7`, review helpful votes `fd11200`, `/users/export` CSV `aab46f4`, notifications collection+routes+emits `0d7dd07`, question follow `b4a5e2d`. Merge to main + deploy needs owner "deploy approved" (main auto-deploys). See handoff 2026-09-04.
+
 - **Q&A redesign (feature/qa-redesign)** — client-driven overhaul; server touch done: `01bce5d` denormalized `answerCount` on questions (`buildQuestionDoc` default 0, `createAnswer` `$inc`, `ensureIndexes` idempotent backfill) so browse cards show real answered/accepted state. Branch ready to merge on client sign-off; deploy needs owner "deploy approved".
 
 ## DONE — Login / Role System (2026-09-02, feature/login-roles)

@@ -8,6 +8,20 @@ which is the master narrative — keep the two consistent.
 
 ---
 
+## 2026-09-04 — Sub-feature waves W1–W10 (branch `feature/subfeatures`, NOT deployed)
+
+### DONE (client-driven, see client handoff for full narrative)
+- `134e8e7` apply `statusHistory[]` appended on create (pending) / accept / cancel-as-reject (`pushStatusEvent` helper)
+- `fd11200` review helpful votes: `POST /allReviews/:id/helpful` toggle (own review 403, self-excluded), `shapeReview` strips `helpfulEmails` (PII) and adds `helpfulCount` (+ `helpfulVoted` when `?voterEmail=`)
+- `aab46f4` `GET /users/export` CSV (staff-only, same q/role/status/orgType filters, 5k cap) + `queryUsers` refactor shared with `getAllUsers`
+- `0d7dd07` notifications: `notifications` collection + 2 indexes, `GET /notifications/me` (unreadCount), `PATCH /notifications/read/:id|read-all`, `createNotification` service (self-skip + 24h dupe cap per recipient/type/actor/question); emits on answer created, answer accepted, question comment, comment reply
+- `b4a5e2d` question follow: `GET|POST|DELETE /questions/:id/follow` (`followerEmails` array on question), follow notifies asker (`question_followed`)
+
+### LEFT / DECISIONS
+- Branch pushed to origin only — **merge to main + deploy needs owner "deploy approved"** (main auto-deploys to Vercel). Until then the client UIs for these (timeline, helpful button, CSV export, bell, follow toggle) will 404 against production.
+
+---
+
 ## 2026-09-04 — DEPLOY perf/optimization to production (user approved)
 
 **What was done**
