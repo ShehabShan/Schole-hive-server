@@ -21,6 +21,11 @@ router.post("/questions/:id/downvote", verifyToken, loadAuthUser, asyncHandler(c
 router.get("/questions/:id/comments", asyncHandler(c.listQuestionComments));
 router.post("/questions/:id/comments", verifyToken, loadAuthUser, asyncHandler(c.createQuestionComment));
 
+// question following (watchlist)
+router.get("/questions/:id/follow", asyncHandler(c.getQuestionFollow));
+router.post("/questions/:id/follow", verifyToken, loadAuthUser, asyncHandler(c.toggleQuestionFollow));
+router.delete("/questions/:id/follow", verifyToken, loadAuthUser, asyncHandler(c.unfollowQuestion));
+
 // update / delete — owner or staff (checked in controller)
 router.patch("/questions/:id", verifyToken, loadAuthUser, asyncHandler(c.patchQuestion));
 router.delete("/questions/:id", verifyToken, loadAuthUser, asyncHandler(c.deleteQuestion));

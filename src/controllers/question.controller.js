@@ -225,4 +225,50 @@ async function listQuestionComments(req, res) {
   res.json({ message: "comments fetched", data, total, page, totalPages: Math.max(1, Math.ceil(total / limit)) });
 }
 
-module.exports = { createQuestion, listQuestions, getQuestionById, patchQuestion, deleteQuestion, upvoteQuestion, downvoteQuestion, createQuestionComment, listQuestionComments };
+async function getQuestionFollow(req, res) {
+  let oid;
+  try { oid = new ObjectId(req.params.id); } catch { return res.status(400).json({ message: "invalid question id" }); }
+  const { questions } = getCollections();
+  const q = await questions.findOne({ _id: oid }, { projection: { followerEmails: 1 } });
+  if (!q) return res.status(404).json({ message: "Question not found" });
+  const followers = Array.isArray(q.followerEmails) ? q.followerEmails.map(String) : [];
+  const email = String(req.query.email || "").trim().toLowerCase();
+  res.json({ message: "follow state", data: { followersCount: followers.length, following: !!email && followers.includes(email) } });
+}
+
+async function toggleQuestionFollow(req, res) {
+  let oid;
+  try { oid = new ObjectId(req.params.id); } catch { return res.status(400).json({ message: "invalid question id" }); }
+  const email = String(req.authUser?.email || req.decoded?.email || "").trim().toLowerCase();
+  if (!email) return res.status(401).json({ message: "unauthorized" });
+  const { questions } = getCollections();
+  const q = await questions.findOne({ _id: oid });
+  if (!q) return res.status(404).json({ message: "Question not found" });
+  const followers = Array.isArray(q.followerEmails) ? q.followerEmails.map(String) : [];
+  const following = followers.includes(email);
+  if (following) {
+    await questions.updateOne({ _id: oid }, { $pull: { followerEmails: email }, $set: { updatedAt: new Date() } });
+  } else {
+    await questions.updateOne({ _id: oid }, { $addToSet: { followerEmails: email }, $set: { updatedAt: new Date() } });
+    await createNotification({
+      recipientEmail: q.authorEmail,
+      type: "question_followed",
+      actorEmail: email,
+      payload: { questionId: String(oid), questionTitle: q.title },
+    });
+  }
+  res.json({ message: following ? "unfollowed" : "following", data: { following: !following, followersCount: followers.length + (following ? -1 : 1) } });
+}
+
+async function unfollowQuestion(req, res) {
+  let oid;
+  try { oid = new ObjectId(req.params.id); } catch { return res.status(400).json({ message: "invalid question id" }); }
+  const email = String(req.authUser?.email || req.decoded?.email || "").trim().toLowerCase();
+  if (!email) return res.status(401).json({ message: "unauthorized" });
+  const { questions } = getCollections();
+  const result = await questions.updateOne({ _id: oid }, { $pull: { followerEmails: email } });
+  const q = await questions.findOne({ _id: oid }, { projection: { followerEmails: 1 } });
+  res.json({ message: "unfollowed", data: { following: false, followersCount: Array.isArray(q?.followerEmails) ? q.followerEmails.length : 0, matched: result.matchedCount } });
+}
+
+module.exports = { createQuestion, listQuestions, getQuestionById, patchQuestion, deleteQuestion, upvoteQuestion, downvoteQuestion, createQuestionComment, listQuestionComments, getQuestionFollow, toggleQuestionFollow, unfollowQuestion };
