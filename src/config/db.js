@@ -33,6 +33,7 @@ async function connect() {
     follows: db.collection("follows"),
     questions: db.collection("questions"),
     answers: db.collection("answers"),
+    questionComments: db.collection("question_comments"),
     reputationEvents: db.collection("reputationEvents"),
     verifyRequests: db.collection("verifyRequests"),
   };
@@ -43,7 +44,7 @@ async function connect() {
 }
 
 async function ensureIndexes() {
-  const { reviews, scholership, saved, inquiries, reviewHistory, users, apply, institutionStudents, follows, questions, answers, reputationEvents, verifyRequests } = collections;
+  const { reviews, scholership, saved, inquiries, reviewHistory, users, apply, institutionStudents, follows, questions, answers, questionComments, reputationEvents, verifyRequests } = collections;
 
   try {
     await reviews.createIndex({ reviewer_email: 1, scholarShip_id: 1 }, { unique: true, background: true });
@@ -162,6 +163,16 @@ async function ensureIndexes() {
     await verifyRequests.createIndex({ userId: 1 }, { background: true, sparse: true });
   } catch (e) {
     console.log("verifyRequests index warning", e.message);
+  }
+
+  // Question-level inline comments (card polish pass)
+  try {
+    const { questionComments } = collections;
+    await questionComments.createIndex({ questionId: 1, createdAt: 1 }, { background: true });
+    await questionComments.createIndex({ questionId: 1, parentCommentId: 1 }, { background: true });
+    await questionComments.createIndex({ authorEmail: 1, createdAt: -1 }, { background: true });
+  } catch (e) {
+    console.log("questionComments index warning", e.message);
   }
 }
 

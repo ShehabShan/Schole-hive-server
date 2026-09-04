@@ -79,6 +79,7 @@ function buildQuestionDoc({ payload, author }) {
     viewCount: 0,
     answerCount: 0,
     upvoterIds: [],
+    downvoterIds: [],
   };
   return normalized;
 }

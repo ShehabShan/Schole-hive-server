@@ -1,6 +1,7 @@
 const { ObjectId } = require("mongodb");
 const { getCollections } = require("../config/db");
 const { validateQuestionPayload, buildQuestionDoc } = require("../utils/question.validator");
+const { validateCommentPayload, buildCommentDoc } = require("../utils/comment.validator");
 const { buildQuestionFilter, buildQuestionSort, normalizeQuestionPatch } = require("../services/question.service");
 const { parsePagination } = require("../utils/pagination");
 const { POINTS, applyReputation } = require("../utils/reputation");
@@ -129,7 +130,8 @@ async function upvoteQuestion(req, res) {
   if (!voterEmail) return res.status(401).json({ message: "unauthorized" });
   if (String(question.authorEmail||"").toLowerCase()===voterEmail) return res.status(400).json({ message: "cannot vote own question" });
   const upvoters = Array.isArray(question.upvoterIds) ? question.upvoterIds.map(String) : [];
-  if (upvoters.includes(voterEmail)) return res.status(409).json({ message: "already voted" });
+  const downvoters = Array.isArray(question.downvoterIds) ? question.downvoterIds.map(String) : [];
+  if (upvoters.includes(voterEmail) || downvoters.includes(voterEmail)) return res.status(409).json({ message: "already voted" });
   await questions.updateOne({ _id: oid }, { $inc: { voteScore: 1 }, $push: { upvoterIds: voterEmail }, $set: { updatedAt: new Date() } });
   const recipient = await users.findOne({ email: String(question.authorEmail).toLowerCase() });
   if (recipient) {
@@ -147,4 +149,60 @@ async function upvoteQuestion(req, res) {
   res.json({ message: "upvoted", data: updated, reputation: repUser?.reputation });
 }
 
-module.exports = { createQuestion, listQuestions, getQuestionById, patchQuestion, deleteQuestion, upvoteQuestion };
+async function downvoteQuestion(req, res) {
+  const id = req.params.id;
+  let oid;
+  try { oid = new ObjectId(id); } catch { return res.status(400).json({ message: "invalid id" }); }
+  const { questions } = getCollections();
+  const question = await questions.findOne({ _id: oid });
+  if (!question) return res.status(404).json({ message: "Question not found" });
+  const voter = req.authUser;
+  const voterRep = typeof voter?.reputation === "number" ? voter.reputation : 0;
+  if (voterRep < 125) return res.status(403).json({ message: "125 rep required to downvote" });
+  const voterEmail = String(voter?.email || req.decoded?.email || "").toLowerCase();
+  if (!voterEmail) return res.status(401).json({ message: "unauthorized" });
+  if (String(question.authorEmail||"").toLowerCase()===voterEmail) return res.status(400).json({ message: "cannot vote own question" });
+  const upvoters = Array.isArray(question.upvoterIds) ? question.upvoterIds.map(String) : [];
+  const downvoters = Array.isArray(question.downvoterIds) ? question.downvoterIds.map(String) : [];
+  if (upvoters.includes(voterEmail) || downvoters.includes(voterEmail)) return res.status(409).json({ message: "already voted" });
+  await questions.updateOne({ _id: oid }, { $inc: { voteScore: -1 }, $push: { downvoterIds: voterEmail }, $set: { updatedAt: new Date() } });
+  const updated = await questions.findOne({ _id: oid });
+  res.json({ message: "downvoted", data: updated });
+}
+
+async function createQuestionComment(req, res) {
+  const id = req.params.id;
+  let qOid;
+  try { qOid = new ObjectId(id); } catch { return res.status(400).json({ message: "invalid question id" }); }
+  const { questions, questionComments } = getCollections();
+  const question = await questions.findOne({ _id: qOid });
+  if (!question) return res.status(404).json({ message: "Question not found" });
+  const { valid, errors, data } = validateCommentPayload(req.body || {});
+  if (!valid) return res.status(400).json({ message: "validation failed", errors });
+  if (data.parentCommentId) {
+    const parent = await questionComments.findOne({ _id: new ObjectId(data.parentCommentId), questionId: qOid });
+    if (!parent) return res.status(404).json({ message: "Parent comment not found" });
+  }
+  const author = req.authUser || { email: req.decoded?.email, role: "user" };
+  if (!author.email && req.decoded?.email) author.email = req.decoded.email;
+  const doc = buildCommentDoc({ payload: data, questionId: qOid, author });
+  if (author._id) doc.authorId = author._id;
+  const result = await questionComments.insertOne(doc);
+  const inserted = await questionComments.findOne({ _id: result.insertedId });
+  res.status(201).json({ message: "Comment created", data: inserted });
+}
+
+async function listQuestionComments(req, res) {
+  const id = req.params.id;
+  let qOid;
+  try { qOid = new ObjectId(id); } catch { return res.status(400).json({ message: "invalid question id" }); }
+  const { questions, questionComments } = getCollections();
+  const question = await questions.findOne({ _id: qOid });
+  if (!question) return res.status(404).json({ message: "Question not found" });
+  const { page, limit, skip } = parsePagination(req.query, { page: 1, limit: 20, maxLimit: 50 });
+  const total = await questionComments.countDocuments({ questionId: qOid });
+  const data = await questionComments.find({ questionId: qOid }).sort({ createdAt: 1 }).skip(skip).limit(limit).toArray();
+  res.json({ message: "comments fetched", data, total, page, totalPages: Math.max(1, Math.ceil(total / limit)) });
+}
+
+module.exports = { createQuestion, listQuestions, getQuestionById, patchQuestion, deleteQuestion, upvoteQuestion, downvoteQuestion, createQuestionComment, listQuestionComments };
