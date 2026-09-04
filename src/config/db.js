@@ -36,6 +36,7 @@ async function connect() {
     questionComments: db.collection("question_comments"),
     reputationEvents: db.collection("reputationEvents"),
     verifyRequests: db.collection("verifyRequests"),
+    notifications: db.collection("notifications"),
   };
 
   await ensureIndexes();
@@ -44,7 +45,14 @@ async function connect() {
 }
 
 async function ensureIndexes() {
-  const { reviews, scholership, saved, inquiries, reviewHistory, users, apply, institutionStudents, follows, questions, answers, questionComments, reputationEvents, verifyRequests } = collections;
+  const { reviews, scholership, saved, inquiries, reviewHistory, users, apply, institutionStudents, follows, questions, answers, questionComments, reputationEvents, verifyRequests, notifications } = collections;
+
+  try {
+    await notifications.createIndex({ recipientEmail: 1, createdAt: -1 }, { background: true });
+    await notifications.createIndex({ recipientEmail: 1, read: 1, createdAt: -1 }, { background: true });
+  } catch (e) {
+    console.log("notification index warning", e.message);
+  }
 
   try {
     await reviews.createIndex({ reviewer_email: 1, scholarShip_id: 1 }, { unique: true, background: true });

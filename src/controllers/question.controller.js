@@ -5,6 +5,7 @@ const { validateCommentPayload, buildCommentDoc } = require("../utils/comment.va
 const { buildQuestionFilter, buildQuestionSort, normalizeQuestionPatch } = require("../services/question.service");
 const { parsePagination } = require("../utils/pagination");
 const { POINTS, applyReputation } = require("../utils/reputation");
+const { createNotification } = require("../services/notification.service");
 
 async function createQuestion(req, res) {
   const { valid, errors, data } = validateQuestionPayload(req.body || {});
@@ -179,9 +180,11 @@ async function createQuestionComment(req, res) {
   if (!question) return res.status(404).json({ message: "Question not found" });
   const { valid, errors, data } = validateCommentPayload(req.body || {});
   if (!valid) return res.status(400).json({ message: "validation failed", errors });
+  let parentAuthorEmail = null;
   if (data.parentCommentId) {
     const parent = await questionComments.findOne({ _id: new ObjectId(data.parentCommentId), questionId: qOid });
     if (!parent) return res.status(404).json({ message: "Parent comment not found" });
+    parentAuthorEmail = parent.authorEmail || null;
   }
   const author = req.authUser || { email: req.decoded?.email, role: "user" };
   if (!author.email && req.decoded?.email) author.email = req.decoded.email;
@@ -189,6 +192,23 @@ async function createQuestionComment(req, res) {
   if (author._id) doc.authorId = author._id;
   const result = await questionComments.insertOne(doc);
   const inserted = await questionComments.findOne({ _id: result.insertedId });
+
+  // notify the asker about the new comment (and the parent-comment author on replies)
+  await createNotification({
+    recipientEmail: question.authorEmail,
+    type: "question_comment",
+    actorEmail: author.email,
+    payload: { questionId: String(qOid), commentId: String(inserted._id), questionTitle: question.title },
+  });
+  if (data.parentCommentId && parentAuthorEmail) {
+    await createNotification({
+      recipientEmail: parentAuthorEmail,
+      type: "comment_reply",
+      actorEmail: author.email,
+      payload: { questionId: String(qOid), commentId: String(inserted._id), questionTitle: question.title },
+    });
+  }
+
   res.status(201).json({ message: "Comment created", data: inserted });
 }
 

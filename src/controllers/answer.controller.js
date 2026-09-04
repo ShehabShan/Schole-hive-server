@@ -3,6 +3,7 @@ const { getCollections } = require("../config/db");
 const { validateAnswerPayload, buildAnswerDoc } = require("../utils/answer.validator");
 const { POINTS, applyReputation } = require("../utils/reputation");
 const { parsePagination } = require("../utils/pagination");
+const { createNotification } = require("../services/notification.service");
 
 async function listAnswersByAuthor(req, res) {
   const raw = String(req.query.authorEmail || req.query.email || "").trim().toLowerCase();
@@ -49,6 +50,14 @@ async function createAnswer(req, res) {
   try {
     await questions.updateOne({ _id: qOid }, { $inc: { answerCount: 1 }, $set: { updatedAt: new Date() } });
   } catch {}
+
+  // notify the asker their question got an answer
+  await createNotification({
+    recipientEmail: question.authorEmail,
+    type: "question_answered",
+    actorEmail: author.email,
+    payload: { questionId: String(qOid), answerId: String(inserted._id), questionTitle: question.title },
+  });
 
   // Q7 resolved: sourceLink +3 immediate (if provided)
   if (inserted.sourceLink) {
@@ -135,6 +144,14 @@ async function acceptAnswer(req, res) {
       relatedAnswerId: aOid,
     });
   }
+
+  // notify the answerer their answer was accepted
+  await createNotification({
+    recipientEmail: answer.authorEmail,
+    type: "answer_accepted",
+    actorEmail: authEmail,
+    payload: { questionId: String(qOid), answerId: String(aOid), questionTitle: question.title },
+  });
 
   const updatedQ = await questions.findOne({ _id: qOid });
   const updatedA = await answers.findOne({ _id: aOid });
