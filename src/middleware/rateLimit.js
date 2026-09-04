@@ -1,4 +1,8 @@
 const store = new Map();
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of store.entries()) if (now - v.start > 60 * 1000) store.delete(k);
+}, 60 * 1000).unref();
 
 function rateLimit({ windowMs = 60 * 1000, max = 20 } = {}) {
   return (req, res, next) => {
@@ -14,5 +18,6 @@ function rateLimit({ windowMs = 60 * 1000, max = 20 } = {}) {
 }
 
 const authRateLimit = rateLimit({ windowMs: 60 * 1000, max: 20 });
+const globalRateLimit = rateLimit({ windowMs: 60 * 1000, max: 100 });
 
-module.exports = { rateLimit, authRateLimit };
+module.exports = { rateLimit, authRateLimit, globalRateLimit };

@@ -3,6 +3,7 @@ const compression = require("compression");
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
 const securityHeaders = require("./middleware/security");
+const { globalRateLimit } = require("./middleware/rateLimit");
 const { errorHandler, notFound } = require("./middleware/errorHandler");
 const { connect } = require("./config/db");
 
@@ -47,6 +48,7 @@ function createApp() {
   app.use(express.json({ limit: "100kb" }));
   app.use(cookieParser());
   app.use(securityHeaders);
+  app.use(globalRateLimit);
   app.use(ensureDb);
 
   // health

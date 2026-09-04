@@ -3,7 +3,9 @@ const env = require("../config/env");
 
 async function postJwt(req, res) {
   const user = req.body;
-  const token = jwt.sign(user, env.ACCESS_TOKEN_SECRET, { expiresIn: "10h" });
+  const token = await new Promise((resolve, reject) => {
+    jwt.sign(user, env.ACCESS_TOKEN_SECRET, { expiresIn: "10h" }, (err, t) => (err ? reject(err) : resolve(t)));
+  });
   res
     .cookie("token", token, {
       httpOnly: true,
