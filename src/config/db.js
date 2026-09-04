@@ -124,7 +124,10 @@ async function ensureIndexes() {
   // apiStrict:true, which would skip anything after it in the same block.
   try {
     const counts = await answers.aggregate([{ $group: { _id: "$questionId", n: { $sum: 1 } } }]).toArray();
-    for (const c of counts) await questions.updateOne({ _id: c._id }, { $set: { answerCount: c.n } });
+    if (counts.length) {
+      const ops = counts.map((c) => ({ updateOne: { filter: { _id: c._id }, update: { $set: { answerCount: c.n } } } }));
+      await questions.bulkWrite(ops, { ordered: false });
+    }
     await questions.updateMany({ answerCount: { $exists: false } }, { $set: { answerCount: 0 } });
   } catch (e) {
     console.log("answerCount backfill warning", e.message);
