@@ -8,7 +8,9 @@ which is the master narrative — keep the two consistent.
 
 ---
 
-## 2026-09-04 — Sub-feature waves W1–W10 (branch `feature/subfeatures`, NOT deployed)
+## 2026-09-04 — Sub-feature waves W1–W10 (branch `feature/subfeatures`) — DEPLOYED
+
+> **Deployed to production 2026-09-04** (owner approved): merged fast-forward to `main` (`0ce9787..d7eab02`), pushed, deployed via `./scripts/deploy.sh` from the client repo (+ one `vercel --prod` fallback when the GitHub auto-deploy didn't trigger). Live checks: `/notifications/me` 401 gate, `/questions/:id/follow` responds, `/users/export` 401 gate.
 
 ### DONE (client-driven, see client handoff for full narrative)
 - `134e8e7` apply `statusHistory[]` appended on create (pending) / accept / cancel-as-reject (`pushStatusEvent` helper)
