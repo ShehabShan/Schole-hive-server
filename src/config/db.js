@@ -47,7 +47,9 @@ async function ensureIndexes() {
 
   try {
     await reviews.createIndex({ reviewer_email: 1, scholarShip_id: 1 }, { unique: true, background: true });
+    await reviews.createIndex({ reviewer_email: 1 }, { background: true });
     await reviews.createIndex({ scholarShip_id: 1, status: 1 }, { background: true });
+    await reviews.createIndex({ scholarShip_id: 1, status: 1, createdAt: -1 }, { background: true });
     await reviews.createIndex({ status: 1, createdAt: -1 }, { background: true });
   } catch (e) {
     console.log("review index warning", e.message);
@@ -60,6 +62,11 @@ async function ensureIndexes() {
     await scholership.createIndex({ applicationDeadline: 1 }, { background: true });
     await scholership.createIndex({ rating: -1 }, { background: true });
     await scholership.createIndex({ applicationFees: 1 }, { background: true });
+    await scholership.createIndex({ city: 1 }, { background: true });
+    await scholership.createIndex({ tags: 1 }, { background: true });
+    await scholership.createIndex({ postDate: -1 }, { background: true });
+    await scholership.createIndex({ status: 1, rating: -1 }, { background: true });
+    await scholership.createIndex({ status: 1, applicationFees: 1 }, { background: true });
     await scholership.createIndex(
       { universityName: "text", scholarshipDescription: "text", subjectName: "text", scholarshipCategory: "text" },
       { background: true, name: "scholarship_text_idx" }
@@ -83,6 +90,8 @@ async function ensureIndexes() {
     await apply.createIndex({ email: 1 }, { background: true });
     await apply.createIndex({ scholarship_id: 1 }, { background: true });
     await apply.createIndex({ email: 1, applicationStatus: 1 }, { background: true });
+    await apply.createIndex({ email: 1, postDate: -1 }, { background: true });
+    await apply.createIndex({ scholarship_id: 1, postDate: -1 }, { background: true });
     await institutionStudents.createIndex({ institutionEmail: 1, studentEmail: 1 }, { unique: true, background: true });
     await institutionStudents.createIndex({ institutionEmail: 1, createdAt: -1 }, { background: true });
     await follows.createIndex({ followerEmail: 1, followingEmail: 1 }, { unique: true, background: true });
@@ -95,6 +104,7 @@ async function ensureIndexes() {
   // Q&A Forum V1 — Task 1: questions collection indexes
   try {
     await questions.createIndex({ category: 1 }, { background: true });
+    await questions.createIndex({ tags: 1 }, { background: true });
     await questions.createIndex({ "context.destinationCountry": 1 }, { background: true });
     await questions.createIndex({ "context.homeCountry": 1 }, { background: true });
     await questions.createIndex({ "context.studyLevel": 1 }, { background: true });
@@ -124,6 +134,7 @@ async function ensureIndexes() {
   try {
     await answers.createIndex({ questionId: 1, createdAt: 1 }, { background: true });
     await answers.createIndex({ questionId: 1, accepted: 1 }, { background: true });
+    await answers.createIndex({ questionId: 1, accepted: -1, voteScore: -1, createdAt: 1 }, { background: true });
     await answers.createIndex({ authorEmail: 1, createdAt: -1 }, { background: true });
     await answers.createIndex({ createdAt: -1 }, { background: true });
 
