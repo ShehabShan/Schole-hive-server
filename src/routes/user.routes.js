@@ -9,6 +9,7 @@ const router = express.Router();
 
 router.post("/users", asyncHandler(c.createUser));
 router.get("/users", verifyToken, loadAuthUser, asyncHandler(c.getAllUsers));
+router.get("/users/export", verifyToken, loadAuthUser, asyncHandler(c.exportUsers));
 router.get("/users/admin/:email", verifyToken, asyncHandler(c.checkAdmin));
 router.get("/users/superAdmin/:email", verifyToken, asyncHandler(c.checkSuperAdmin));
 router.get("/users/modaretor/:email", verifyToken, asyncHandler(c.checkModaretor));

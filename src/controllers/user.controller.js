@@ -184,14 +184,19 @@ async function createUser(req, res) {
 async function getAllUsers(req, res) {
   const role = req.authUser?.role;
   if (role !== "admin" && role !== "superadmin" && role !== "modaretor") return res.status(403).json({ message: "forbidden: admin only" });
+  const { data, total, page, limit, filter, sortObj } = await queryUsers(req.query);
+  res.status(200).json({ message: "User get successfully", data, total, page, totalPages: Math.ceil(total/limit) });
+}
+
+async function queryUsers(query = {}, { withPage = true } = {}) {
   const { users } = getCollections();
-  const q = String(req.query.q || "").trim();
-  const filterRole = String(req.query.role || "").trim().toLowerCase();
-  const filterStatus = String(req.query.status || "").trim().toLowerCase();
-  const orgType = String(req.query.orgType || "").trim().toLowerCase();
-  const page = Math.max(1, parseInt(req.query.page) || 1);
-  const limit = Math.min(50, Math.max(1, parseInt(req.query.limit) || 12));
-  const sort = String(req.query.sort || "newest");
+  const q = String(query.q || "").trim();
+  const filterRole = String(query.role || "").trim().toLowerCase();
+  const filterStatus = String(query.status || "").trim().toLowerCase();
+  const orgType = String(query.orgType || "").trim().toLowerCase();
+  const page = Math.max(1, parseInt(query.page) || 1);
+  const limit = Math.min(50, Math.max(1, parseInt(query.limit) || 12));
+  const sort = String(query.sort || "newest");
   const filter = {};
   if (filterRole && ["user","modaretor","admin","superadmin","institution"].includes(filterRole)) filter.role = filterRole;
   if (filterStatus && ["active","pending","approved","rejected"].includes(filterStatus)) filter.status = filterStatus;
@@ -207,9 +212,28 @@ async function getAllUsers(req, res) {
   let sortObj = { createdAt: -1 };
   if (sort === "name") sortObj = { name: 1 };
   if (sort === "oldest") sortObj = { createdAt: 1 };
+  if (!withPage) return { filter, sortObj };
   const total = await users.countDocuments(filter);
   const data = await users.find(filter).sort(sortObj).skip((page-1)*limit).limit(limit).toArray();
-  res.status(200).json({ message: "User get successfully", data, total, page, totalPages: Math.ceil(total/limit) });
+  return { data, total, page, limit, filter, sortObj };
+}
+
+const csvCell = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+
+async function exportUsers(req, res) {
+  const role = req.authUser?.role;
+  if (role !== "admin" && role !== "superadmin" && role !== "modaretor") return res.status(403).json({ message: "forbidden: admin only" });
+  const { users } = getCollections();
+  const { filter, sortObj } = await queryUsers(req.query, { withPage: false });
+  const rows = await users.find(filter).sort(sortObj).limit(5000).toArray();
+  const header = ["name", "email", "role", "status", "orgName", "city", "createdAt"];
+  const lines = [header.map(csvCell).join(",")];
+  for (const u of rows) {
+    lines.push([u.name, u.email, u.role, u.status, u.orgName, u.city, u.createdAt ? new Date(u.createdAt).toISOString() : ""].map(csvCell).join(","));
+  }
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="users-${new Date().toISOString().slice(0, 10)}.csv"`);
+  res.status(200).send(lines.join("\n"));
 }
 
 async function checkAdmin(req, res) {
@@ -596,6 +620,7 @@ async function checkFollow(req, res) {
 module.exports = {
   createUser,
   getAllUsers,
+  exportUsers,
   checkAdmin,
   checkSuperAdmin,
   checkModaretor,
