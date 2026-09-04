@@ -71,15 +71,17 @@ async function patchScholarship(req, res) {
 
 async function getStats(req, res) {
   const { scholership, reviews, apply } = getCollections();
-  const totalScholarships = await scholership.countDocuments();
-  const totalReviews = await reviews.countDocuments();
-  const pendingReviews = await reviews.countDocuments({ status: "pending" });
-  const totalApplications = await apply.countDocuments();
-  const agg = await scholership.aggregate([{ $group: { _id: null, totalStipend: { $sum: { $toDouble: { $ifNull: ["$stipend", 0] } } }, avgFees: { $avg: { $toDouble: { $ifNull: ["$applicationFees", 0] } } } } }]).toArray();
+  const [totalScholarships, totalReviews, pendingReviews, totalApplications, agg, byCategory, byCountry] = await Promise.all([
+    scholership.countDocuments(),
+    reviews.countDocuments(),
+    reviews.countDocuments({ status: "pending" }),
+    apply.countDocuments(),
+    scholership.aggregate([{ $group: { _id: null, totalStipend: { $sum: { $toDouble: { $ifNull: ["$stipend", 0] } } }, avgFees: { $avg: { $toDouble: { $ifNull: ["$applicationFees", 0] } } } } }]).toArray(),
+    scholership.aggregate([{ $group: { _id: "$scholarshipCategory", count: { $sum: 1 } } }]).toArray(),
+    scholership.aggregate([{ $group: { _id: "$country", count: { $sum: 1 } }, $sort: { count: -1 }, $limit: 6 }]).toArray(),
+  ]);
   const totalStipend = agg[0]?.totalStipend || 0;
   const avgFees = agg[0]?.avgFees || 0;
-  const byCategory = await scholership.aggregate([{ $group: { _id: "$scholarshipCategory", count: { $sum: 1 } } }]).toArray();
-  const byCountry = await scholership.aggregate([{ $group: { _id: "$country", count: { $sum: 1 } }, $sort: { count: -1 }, $limit: 6 }]).toArray();
   res.json({ totalScholarships, totalReviews, pendingReviews, totalApplications, totalStipend, avgFees, byCategory, byCountry });
 }
 

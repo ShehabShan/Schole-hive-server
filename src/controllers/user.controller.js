@@ -337,29 +337,34 @@ async function getMeStats(req, res) {
   let avgRating = null;
   try {
     if (!isInstitution) {
-      applications = await apply.countDocuments({ email });
-      reviewsCount = await reviews.countDocuments({ reviewer_email: email });
-      savedCount = await saved.countDocuments({ userEmail: email });
+      [applications, reviewsCount, savedCount] = await Promise.all([
+        apply.countDocuments({ email }),
+        reviews.countDocuments({ reviewer_email: email }),
+        saved.countDocuments({ userEmail: email }),
+      ]);
     } else {
       scholarshipsCreated = await scholership.countDocuments({ createdBy: email });
-      // count applications to my scholarships
       const myIds = await scholership.find({ createdBy: email }, { projection: { _id: 1 } }).toArray();
-      // apply uses scholarship_id string, need string ids
       if (myIds.length) {
         const ids = myIds.map(d=>String(d._id));
-        applications = await apply.countDocuments({ scholarship_id: { $in: ids } });
+        const { institutionStudents } = getCollections();
+        [applications, studentsCount] = await Promise.all([
+          apply.countDocuments({ scholarship_id: { $in: ids } }),
+          institutionStudents.countDocuments({ institutionEmail: email }),
+        ]);
+      } else {
+        const { institutionStudents } = getCollections();
+        studentsCount = await institutionStudents.countDocuments({ institutionEmail: email });
       }
-      const { institutionStudents } = getCollections();
-      studentsCount = await institutionStudents.countDocuments({ institutionEmail: email });
     }
-    // avg rating for reviews received? approximate via scholership rating if institution else reviews avg
     if (reviewsCount > 0) {
       const agg = await reviews.aggregate([{ $match: { reviewer_email: email } }, { $group: { _id: null, avg: { $avg: "$rating" } } }]).toArray();
       if (agg[0]) avgRating = Number(agg[0].avg.toFixed(1));
     }
-    // follower counts
-    const followers = await follows.countDocuments({ followingEmail: email });
-    const following = await follows.countDocuments({ followerEmail: email });
+    const [followers, following] = await Promise.all([
+      follows.countDocuments({ followingEmail: email }),
+      follows.countDocuments({ followerEmail: email }),
+    ]);
     const completeness = typeof me.completeness === "number" ? me.completeness : computeCompleteness(me);
     res.json({ message: "stats fetched", data: { applications, reviews: reviewsCount, saved: savedCount, scholarshipsCreated, avgRating, studentsCount, followers, following, completeness, role: me.role } });
   } catch (e) {
